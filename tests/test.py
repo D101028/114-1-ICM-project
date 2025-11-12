@@ -86,7 +86,7 @@ def render_symbol_to_png(symbol, filename, dpi=200, pad=0.25, transparent=True):
     # 自動根據文字調整畫布大小
     fig.canvas.draw()
     # 使用 tight_layout=False，改用 bbox_inches='tight' + pad_inches 控制留白
-    fig.savefig(filename, dpi=dpi, transparent=transparent, bbox_inches='tight', pad_inches=pad)
+    fig.savefig(filename, dpi=dpi, transparent=False, bbox_inches='tight', pad_inches=pad, facecolor='white', edgecolor='white')
     plt.close(fig)
 
 # 產生檔名的安全函數（移除反斜線與特殊字元）
