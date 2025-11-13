@@ -1,8 +1,10 @@
 import os
-import matplotlib.pyplot as plt
+import numpy as np
 from PIL import Image, ImageChops
 
-def trim_to_content(input_path, output_path, bg_color=None, save_bg_color=None):
+def crop_img(input_path: str, 
+             bg_color: tuple[int, int, int] | None = (255,255,255), 
+             save_bg_color: tuple[int, int, int] | None = None):
     """
     將圖片裁切到非透明（或非背景）像素的最外邊界，並可指定輸出背景顏色。
     - bg_color: 無 alpha 圖時用來辨識背景（例如 (255,255,255)），None 則取左上角像素。
@@ -12,7 +14,7 @@ def trim_to_content(input_path, output_path, bg_color=None, save_bg_color=None):
     img = Image.open(input_path)
 
     # 有 alpha：用 alpha 決定裁切範圍
-    if img.mode in ("RGBA", "LA") or ("transparency" in img.info):
+    if bg_color is None and (img.mode in ("RGBA", "LA") or ("transparency" in img.info)):
         if img.mode not in ("RGBA", "LA"):
             img = img.convert("RGBA")
         alpha = img.getchannel("A")
@@ -47,65 +49,61 @@ def trim_to_content(input_path, output_path, bg_color=None, save_bg_color=None):
             canvas.paste(cropped)
             out = canvas
 
-    out.save(output_path)
+    return out
 
-def render_symbol_to_png(symbol, filename, dpi=200, pad=0.25, transparent=True):
+def compare_img(img1: Image, img2: Image, to_size: tuple[int, int] | None = None, max_samples: int = 8192) -> float:
     """
-    將單一 LaTeX 符號渲染為 PNG。
-    symbol: 不含 $$ 的 LaTeX 內容（例如 r'\alpha' 或 r'\mathbb{R}'）
-    filename: 輸出檔名（包含路徑）
-    dpi: 圖片解析度
-    pad: 圖像周圍留白比例（inches）
-    transparent: 是否透明背景
+    Resize two PIL Images to `to_size` (default 128x128), sample up to `max_samples`
+    pixels (evenly distributed) and return the ratio of similarity (0.0 - 1.0).
     """
-    fig = plt.figure(figsize=(2, 2), dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.axis('off')
+    if to_size is None:
+        to_size = (128, 128)
 
-    # 使用 mathtext inline 格式：$...$
-    text = f"${symbol}$"
+    resample = getattr(Image, "LANCZOS", Image.BICUBIC)
 
-    # 將文字置中
-    ax.text(0.5, 0.5, text, ha='center', va='center')
+    a = img1.resize(to_size, resample).convert("RGBA")
+    b = img2.resize(to_size, resample).convert("RGBA")
 
-    # 自動根據文字調整畫布大小
-    fig.canvas.draw()
-    # 使用 tight_layout=False，改用 bbox_inches='tight' + pad_inches 控制留白
-    fig.savefig(filename, dpi=dpi, transparent=False, bbox_inches='tight', pad_inches=pad, facecolor='white', edgecolor='white')
-    plt.close(fig)
+    total = to_size[0] * to_size[1]
+    if total == 0:
+        return 0.0
+
+    # sample every `step`-th pixel to keep comparisons bounded
+    step = max(1, total // max_samples)
+
+    it_a = a.getdata()
+    it_b = b.getdata()
+
+    arr_a = np.asarray(a, dtype=np.uint8).reshape(-1, 4)
+    arr_b = np.asarray(b, dtype=np.uint8).reshape(-1, 4)
+
+    indices = np.arange(0, arr_a.shape[0], step)
+    sampled = indices.size
+
+    if sampled == 0:
+        same = 0.0
+    else:
+        # use RGB vector distance -> similarity in [0,1]
+        a_rgb = arr_a[indices, :3].astype(np.float32)
+        b_rgb = arr_b[indices, :3].astype(np.float32)
+
+        diff = a_rgb - b_rgb
+        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance per pixel
+
+        max_dist = 255.0 * (3 ** 0.5)
+        sim = 1.0 - (dist / max_dist)
+        sim = np.clip(sim, 0.0, 1.0)
+
+        # average similarity is sum(sim) / sampled; keep numerator to match final return
+        same = float(np.sum(sim))
+
+    return (same / sampled) if sampled else 0.0
 
 if __name__ == "__main__":
+    img1 = crop_img('./test2.png')
 
-    # 使用 matplotlib 的內建 mathtext，避免依賴系統 LaTeX
-    plt.rcParams['mathtext.fontset'] = 'stix'   # 也可改為 'dejavusans' 或 'cm'
-    plt.rcParams['font.size'] = 72              # 控制輸出字體大小
-
-    # 想要輸出的 LaTeX 符號清單（不需加 $$，但需用 \ 指令）
-    symbols = [
-        r'a',
-        r'\alpha',
-        r'\forall', 
-        r'\nabla',
-    ]
-
-    # 輸出資料夾
-    out_dir = "latex_symbols"
-    os.makedirs(out_dir, exist_ok=True)
-
-    # 產生檔名的安全函數（移除反斜線與特殊字元）
-    def safe_name(symbol):
-        name = symbol.replace('\\', '_').replace('{', '').replace('}', '')
-        name = name.replace('^', 'sup').replace('_', 'sub')
-        name = name.replace('/', '_over_')
-        # 避免空字串
-        return name if name.strip() else "symbol"
-
-    # 主迴圈
-    for sym in symbols:
-        fname = os.path.join(out_dir, f"{safe_name(sym)}.png")
-        try:
-            render_symbol_to_png(sym, fname, dpi=300, pad=0.3, transparent=True)
-        except:
-            pass 
-
-    print(f"Done. Images saved to: {os.path.abspath(out_dir)}")
+    for root, dirs, files in os.walk('./latex_symbols'):
+        for file in files:
+            img2 = crop_img(f"{root}/{file}")
+            print(f"{file}: {compare_img(img1, img2)}")
+        break

@@ -11,7 +11,7 @@ def trim_to_content(input_path, output_path, bg_color=None, save_bg_color=None):
     img = Image.open(input_path)
 
     # 有 alpha：用 alpha 決定裁切範圍
-    if img.mode in ("RGBA", "LA") or ("transparency" in img.info):
+    if bg_color is None and (img.mode in ("RGBA", "LA") or ("transparency" in img.info)):
         if img.mode not in ("RGBA", "LA"):
             img = img.convert("RGBA")
         alpha = img.getchannel("A")
@@ -57,5 +57,5 @@ if __name__ == "__main__":
     
     for root, dirs, files in os.walk(src_dir):
         for file in files:
-            trim_to_content(f"{root}/{file}", f"{out_dir}/{file}", save_bg_color=(255, 255, 255))
+            trim_to_content(f"{root}/{file}", f"{out_dir}/{file}", bg_color=(255,255,255), save_bg_color=(255, 255, 255))
         break

@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-import time
+from crop import trim_to_content
 
 def hu_similarity(img1, img2):
     # 轉灰階 & 二值化
@@ -23,8 +23,9 @@ def hu_similarity(img1, img2):
     distance = np.linalg.norm(hu1 - hu2)
     return distance
 
-img1 = cv2.imread('latex_symbols/subnabla.png', cv2.IMREAD_GRAYSCALE)
-img2 = cv2.imread('test.png', cv2.IMREAD_GRAYSCALE)
+img1 = cv2.imread('out_symbols/a.png', cv2.IMREAD_GRAYSCALE)
+trim_to_content('test2.png', 'cropped_test.png', (255,255,255), (255,255,255))
+img2 = cv2.imread('cropped_test.png', cv2.IMREAD_GRAYSCALE)
 
 score = hu_similarity(img1, img2)
 
