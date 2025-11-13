@@ -17,17 +17,15 @@ def hu_similarity(img1, img2):
     hu2 = cv2.HuMoments(cv2.moments(contours2[0])).flatten()
     
     # 計算對數距離
-    # hu1 = -np.sign(hu1)*np.log10(np.abs(hu1)+1e-10)
-    # hu2 = -np.sign(hu2)*np.log10(np.abs(hu2)+1e-10)
+    hu1 = -np.sign(hu1)*np.log10(np.abs(hu1)+1e-10)
+    hu2 = -np.sign(hu2)*np.log10(np.abs(hu2)+1e-10)
     
     distance = np.linalg.norm(hu1 - hu2)
     return distance
 
-img1 = cv2.imread('latex_symbols/a.png', cv2.IMREAD_GRAYSCALE)
-img2 = cv2.imread('out_symbols/subcap.png', cv2.IMREAD_GRAYSCALE)
+img1 = cv2.imread('latex_symbols/subnabla.png', cv2.IMREAD_GRAYSCALE)
+img2 = cv2.imread('test.png', cv2.IMREAD_GRAYSCALE)
 
-start = time.time()
 score = hu_similarity(img1, img2)
-print(time.time() - start)
 
 print("Hu moment distance:", score)
