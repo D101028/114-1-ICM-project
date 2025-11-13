@@ -51,7 +51,7 @@ def trim_to_content(input_path, output_path, bg_color=None, save_bg_color=None):
 
 if __name__ == "__main__":
     src_dir = './latex_symbols'
-    out_dir = './out_symbols/'
+    out_dir = './out_symbols'
     
     os.makedirs(out_dir, exist_ok=True)
     
