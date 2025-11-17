@@ -1,6 +1,6 @@
 # **Project Proposal — LaTeX-OCR: A Rule-Based OCR System for Printed Mathematical Formulas**
 
-Members: B13201026 詹淯翔、B13201025 吳冠霆、
+Members: B13201026 詹淯翔、B13201025 吳冠霆、B132010?? 周暉祐
 
 ## **1. Introduction**
 
