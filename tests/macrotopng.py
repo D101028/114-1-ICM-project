@@ -72,5 +72,7 @@ def latex_symbol_to_png(
 
         return pix.width, pix.height
 
-width, height = latex_symbol_to_png(r"\alpha", dpi=900)
-print("output:", width, height)
+
+if __name__ == "__main__":
+    width, height = latex_symbol_to_png(r"\alpha", dpi=900)
+    print("output:", width, height)
