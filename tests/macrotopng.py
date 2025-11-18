@@ -2,12 +2,14 @@ import subprocess
 import tempfile
 import fitz  # PyMuPDF
 from pathlib import Path
+from PIL import Image
 
 def latex_symbol_to_png(
     macro,
     compiler="xelatex",
     dpi=300,
-    out_path="symbol.png"
+    out_path="symbol.png", 
+    background=None
 ):
     """
     Convert a LaTeX math symbol macro like '\\alpha' into a PNG image
@@ -58,7 +60,7 @@ def latex_symbol_to_png(
             stderr=subprocess.PIPE
         )
 
-        # --- Step 4: convert PDF → PNG with PyMuPDF ---
+        # --- Step 4: convert PDF → PNG with white background ---
         pdf = fitz.open(cropped_pdf_path)
         page = pdf[0]
 
@@ -66,7 +68,13 @@ def latex_symbol_to_png(
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=True)
 
-        pix.save(out_path)
+        if background is None:
+            pix.save(out_path)
+        else:
+            img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+            bg = Image.new("RGB", img.size, background)
+            bg.paste(img, mask=img.split()[3])  # use alpha channel as mask
+            bg.save(out_path, format="PNG")
 
         pdf.close()
 
@@ -74,5 +82,16 @@ def latex_symbol_to_png(
 
 
 if __name__ == "__main__":
-    width, height = latex_symbol_to_png(r"\alpha", dpi=900)
+    width, height = latex_symbol_to_png(
+        r"\text{Apple, I have icecream } ijk \dot{a} = \geq \equiv \ddots e^{i\pi^{jk}}", 
+        dpi=600, 
+        out_path="in1.png", 
+        background=(255,255,255)
+    )
+    width, height = latex_symbol_to_png(
+        r"\text{Apple, I have icecream } \sum_{i=0}^{2^{10}}e^{-i}", 
+        dpi=600, 
+        out_path="in2.png", 
+        background=(255,255,255)
+    )
     print("output:", width, height)
