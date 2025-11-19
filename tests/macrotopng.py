@@ -83,7 +83,7 @@ def latex_symbol_to_png(
 
 if __name__ == "__main__":
     width, height = latex_symbol_to_png(
-        r"\text{Apple, I have icecream } ijk \dot{a} = \geq \equiv \ddots e^{i\pi^{jk}}", 
+        r"\overline{ab} ijk \dot{a} = \geq \equiv \ddots e^{i\pi^{jk^{ij}}}", 
         dpi=600, 
         out_path="in1.png", 
         background=(255,255,255)
