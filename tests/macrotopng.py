@@ -80,18 +80,3 @@ def latex_symbol_to_png(
 
         return pix.width, pix.height
 
-
-if __name__ == "__main__":
-    width, height = latex_symbol_to_png(
-        r"\overline{ab} ijk \dot{a} = \geq \equiv \ddots e^{i\pi^{jk^{ij}}}", 
-        dpi=600, 
-        out_path="in1.png", 
-        background=(255,255,255)
-    )
-    width, height = latex_symbol_to_png(
-        r"\text{Apple, I have icecream } \sum_{i=0}^{2^{10}}e^{-i}", 
-        dpi=600, 
-        out_path="in2.png", 
-        background=(255,255,255)
-    )
-    print("output:", width, height)
