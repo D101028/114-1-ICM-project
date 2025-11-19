@@ -12,7 +12,7 @@ def test0():
         r"j \cdot \sum^{i}", 
         r"\Theta \varTheta \Xi \varXi \| \Vert \lim_{x \to \infty} \sqrt[n]{abc}\circledast \circledcirc \div \doublebarwedge \doteqdot \fallingdotseq \risingdotseq \Vvdash ", 
         r"\text{Apple, I have icecream } ", 
-        r"i\quad j\quad \doteqdot \div \doteq "
+        r"i\quad j\quad := \doteqdot \div \doteq "
     ]
 
     for idx, tex in enumerate(texs):
@@ -28,7 +28,7 @@ def test():
         img = Image.open(f"./data/in{i}.png")
         out_img = level_mark_components_and_clusters_pil(
             img, wx=4, wy=0, 
-            refine_min_size=4, refine_ratio=0.5, diag_ratio=-1)[0]
+            refine_min_size=4, refine_ratio=0.3, diag_ratio=-1)[0]
         out_img.save(f"./data/out{i}.png")
 
 def test2():
@@ -50,5 +50,5 @@ def test2():
     out_img.save(f"out.png")
 
 if __name__ == "__main__":
-    # test0()
+    test0()
     test()
