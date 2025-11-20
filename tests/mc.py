@@ -182,7 +182,7 @@ def level_mark_components_and_clusters_pil(
         black_height = 0
     else:
         black_height = ys.max() - ys.min() + 1
-    print(black_height)
+    # print(black_height)
 
     # 你的比例：125px -> 50 threshold
     # threshold = black_height * (50 / 125) = 0.4 * black_height
@@ -214,6 +214,7 @@ def level_mark_components_and_clusters_pil(
     # --- cluster centroids ---
     clusters = hierarchical_cluster(centroids, threshold, wx, wy, refine_min_size, refine_ratio, diag_ratio=diag_ratio)
 
+    boxes = []
     # --- draw cluster boxes ---
     for cluster in clusters:
         xs, ys = [], []
@@ -224,11 +225,12 @@ def level_mark_components_and_clusters_pil(
 
         X1, Y1 = min(xs), min(ys)
         X2, Y2 = max(xs), max(ys)
+        boxes.append((Y1, X1, Y2-Y1+1, X2-X1+1))
 
         cv2.rectangle(out, (X1, Y1), (X2, Y2), (0, 255, 0), 2)
 
     # --- Convert numpy → PIL image ---
     output_pil = Image.fromarray(out)
 
-    return output_pil, centroids, clusters, threshold, black_height
+    return output_pil, centroids, clusters, boxes, black_height
 

@@ -51,7 +51,7 @@ def crop_img(input_path: str,
 
     return out
 
-def compare_img(img1: Image, img2: Image, to_size: tuple[int, int] | None = None, max_samples: int = 8192) -> float:
+def compare_img(img1: Image.Image, img2: Image.Image, to_size: tuple[int, int] | None = None, max_samples: int = 8192) -> float:
     """
     Resize two PIL Images to `to_size` (default 128x128), sample up to `max_samples`
     pixels (evenly distributed) and return the ratio of similarity (0.0 - 1.0).
@@ -98,6 +98,52 @@ def compare_img(img1: Image, img2: Image, to_size: tuple[int, int] | None = None
         same = float(np.sum(sim))
 
     return (same / sampled) if sampled else 0.0
+
+def _crop_img_obj(img: Image.Image, bg_color: tuple[int, int, int] | None):
+    # Use alpha if requested/available
+    if bg_color is None and (img.mode in ("RGBA", "LA") or ("transparency" in img.info)):
+        if img.mode not in ("RGBA", "LA"):
+            img = img.convert("RGBA")
+        alpha = img.getchannel("A")
+        bbox = alpha.getbbox()
+        return img.crop(bbox) if bbox else img
+    else:
+        rgb = img.convert("RGB")
+        use_bg = bg_color if bg_color is not None else rgb.getpixel((0, 0))
+        bg_img = Image.new("RGB", rgb.size, use_bg)
+        diff = ImageChops.difference(rgb, bg_img)
+        diff = ImageChops.add(diff, diff, 2.0, -10)
+        bbox = diff.getbbox()
+        return img.crop(bbox) if bbox else img
+
+def dist_compare(img1: Image.Image, img2: Image.Image, bg: tuple[int, int, int] | None = None) -> float:
+    """
+    Crop non-background regions from img1 and img2 (if bg is None, prefer transparency as background),
+    resize img1 or img2 size, and return the similarity ratio [0, 1] between the two images' pixel vectors.
+    """
+
+    img1_c = _crop_img_obj(img1, bg)
+    img2_c = _crop_img_obj(img2, bg)
+
+    # Resize target to source size
+    resample = getattr(Image, "LANCZOS", Image.BICUBIC)
+    if img1_c.size > img2_c.size:
+        img2_c = img2_c.resize(img1_c.size, resample)
+    elif img1_c.size < img2_c.size:
+        img1_c = img1_c.resize(img2_c.size, resample)
+
+    # Coerce both to the same mode (RGBA) and compute L2 on flattened arrays
+    a = img1_c.convert("RGBA")
+    b = img2_c.convert("RGBA")
+
+    arr1 = np.asarray(a, dtype=np.float32).ravel()
+    arr2 = np.asarray(b, dtype=np.float32).ravel()
+
+    l2_distance = np.linalg.norm(arr1 - arr2, ord=2)
+    max_distance = np.sqrt(len(arr1)) * 255  # Maximum possible distance
+
+    similarity = 1 - (l2_distance / max_distance)
+    return float(np.clip(similarity, 0, 1))
 
 if __name__ == "__main__":
     img1 = crop_img('./test2.png')

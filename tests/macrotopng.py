@@ -9,7 +9,8 @@ def latex_symbol_to_png(
     compiler="xelatex",
     dpi=300,
     out_path="symbol.png", 
-    background=None
+    background=None, 
+    gray_level=True
 ):
     """
     Convert a LaTeX math symbol macro like '\\alpha' into a PNG image
@@ -61,22 +62,39 @@ def latex_symbol_to_png(
         )
 
         # --- Step 4: convert PDF → PNG with white background ---
-        pdf = fitz.open(cropped_pdf_path)
-        page = pdf[0]
+        with fitz.open(cropped_pdf_path) as pdf:
+            page = pdf[0]
 
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat, alpha=True)
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=True)
 
-        if background is None:
-            pix.save(out_path)
-        else:
-            img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
-            bg = Image.new("RGB", img.size, background)
-            bg.paste(img, mask=img.split()[3])  # use alpha channel as mask
-            bg.save(out_path, format="PNG")
+            if background is None:
+                if gray_level:
+                    # Convert pixmap to grayscale while keeping alpha
+                    # pix.samples: RGBA; shape: (h*w*4)
 
-        pdf.close()
+                    # Convert pixmap → PIL image
+                    img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+
+                    # Split channels
+                    r, g, b, a = img.split()
+
+                    # Convert RGB → grayscale (luminosity)
+                    gray = Image.merge("RGB", (r, g, b)).convert("L")
+
+                    # Recombine gray + original alpha
+                    final_img = Image.merge("LA", (gray, a))
+                    final_img.save(out_path)
+                else:
+                    pix.save(out_path)
+            else:
+                img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+                if gray_level:
+                    img = img.convert("LA")
+                bg = Image.new("RGB", img.size, background)
+                bg.paste(img, mask=img.split()[-1])  # use alpha channel as mask
+                bg.save(out_path, format="PNG")
 
         return pix.width, pix.height
 
