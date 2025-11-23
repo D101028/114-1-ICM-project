@@ -77,11 +77,11 @@ Input Image
 
 **Week 1–2:** Preprocessing + contour segmentation
 
-**Week 3–4:** Build template database + implement recognition
+**Week 2–3:** Build template database + implement recognition
 
-**Week 5:** Structural analysis (sup/sub, fraction, radical)
+**Week 4:** Structural analysis (sup/sub, fraction, radical)
 
-**Week 6:** Integration, test set creation, demo & report
+**Week 5:** Integration, test set creation, demo & report
 
 
 
