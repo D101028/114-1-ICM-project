@@ -32,9 +32,9 @@ The project targets practical scenarios in coursework: single-line printed formu
 
 3. **Template-Based Symbol Recognition**
 
-   * Use `cv2.matchTemplate` with normalized cross-correlation
-   * Symbol database: 20–40 templates (digits, letters, operators)
-   * Best score determines recognition result
+   * Compare each cropped symbol against the template database using normalized cross-correlation or Euclidean distance
+   * If similarity falls below a confidence threshold, return to step 2 for re-segmentation
+   * The template with the highest match score determines the final symbol recognition
 
 4. **Structural Analysis (Rule-Based)**
 
