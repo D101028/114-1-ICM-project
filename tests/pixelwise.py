@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageEnhance
 
 def crop_img(input_path: str, 
              bg_color: tuple[int, int, int] | None = (255,255,255), 
@@ -125,16 +125,28 @@ def dist_compare(img1: Image.Image, img2: Image.Image, bg: tuple[int, int, int] 
     img1_c = _crop_img_obj(img1, bg)
     img2_c = _crop_img_obj(img2, bg)
 
+    # # 如果長寬比差太多，直接回傳 0.0
+    # w1, h1 = img1_c.size
+    # w2, h2 = img2_c.size
+    # # 避免除以零
+    # ar1 = (w1 / h1) if h1 else float("inf")
+    # ar2 = (w2 / h2) if h2 else float("inf")
+    # # 若任一比例為無限或兩者比值過大則視為差異太大（閾值 2.0，可調）
+    # if max(ar1 / ar2 if ar2 else float("inf"), ar2 / ar1 if ar1 else float("inf")) > 1.5:
+    #     return 0.0
+
     # Resize target to source size
     resample = getattr(Image, "LANCZOS", Image.BICUBIC)
-    if img1_c.size > img2_c.size:
+    if img1_c.size < img2_c.size:
         img2_c = img2_c.resize(img1_c.size, resample)
-    elif img1_c.size < img2_c.size:
+    elif img1_c.size > img2_c.size:
         img1_c = img1_c.resize(img2_c.size, resample)
 
     # Coerce both to the same mode (RGBA) and compute L2 on flattened arrays
     a = img1_c.convert("RGBA")
     b = img2_c.convert("RGBA")
+    # a = ImageEnhance.Contrast(img1_c.convert("L")).enhance(2.0)
+    # b = ImageEnhance.Contrast(img2_c.convert("L")).enhance(2.0)
 
     arr1 = np.asarray(a, dtype=np.float32).ravel()
     arr2 = np.asarray(b, dtype=np.float32).ravel()
@@ -146,10 +158,13 @@ def dist_compare(img1: Image.Image, img2: Image.Image, bg: tuple[int, int, int] 
     return float(np.clip(similarity, 0, 1))
 
 if __name__ == "__main__":
-    img1 = crop_img('./test2.png')
+    img1 = crop_img('data/in3.png')
+    img2 = crop_img('data/in1.png')
 
-    for root, dirs, files in os.walk('./latex_symbols'):
-        for file in files:
-            img2 = crop_img(f"{root}/{file}")
-            print(f"{file}: {compare_img(img1, img2)}")
-        break
+    import time 
+    start = time.time()
+    for _ in range(100):
+        dist_compare(img1, img2, (255,255,255))
+    
+    print(time.time() - start)
+    

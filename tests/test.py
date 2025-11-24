@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 import os
-from PIL import Image
+from PIL import Image, ImageEnhance
 from prettytable import PrettyTable
 
 from macrotopng import latex_symbol_to_png
@@ -45,23 +45,24 @@ def test3():
             out_path = f"templates/{name}", 
             background = (255,255,255)
         )
-    samples = r"""
-0123456789
-abcdefghijklmnopqrstuvwxyz
-ABCDEFGHIJKLMNOPQRSTUVWXYZ
-\text{a} \text{b} \text{c} \text{d} \text{e} \text{f} \text{g} \text{h} \text{i} \text{j} \text{k} \text{l} \text{m} \text{n} \text{o} \text{p} \text{q} \text{r} \text{s} \text{t} \text{u} \text{v} \text{w} \text{x} \text{y} \text{z}
-\text{A} \text{B} \text{C} \text{D} \text{E} \text{F} \text{G} \text{H} \text{I} \text{J} \text{K} \text{L} \text{M} \text{N} \text{O} \text{P} \text{Q} \text{R} \text{S} \text{T} \text{U} \text{V} \text{W} \text{X} \text{Y} \text{Z}
-\cdot \sum \alpha \beta + - \tims * / \leq \geq | ( ) = [ ] , \int
-""".strip().replace("\n", " ")
-    for macro in samples.split():
-        try:
-            if macro[0] != "\\" and len(macro) != 1:
-                for m in macro:
-                    create_img(m)
-            else:
-                create_img(macro)
-        except Exception as e:
-            print(e)
+    create_img("\\in")
+#     samples = r"""
+# 0123456789
+# abcdefghijklmnopqrstuvwxyz
+# ABCDEFGHIJKLMNOPQRSTUVWXYZ
+# \text{a} \text{b} \text{c} \text{d} \text{e} \text{f} \text{g} \text{h} \text{i} \text{j} \text{k} \text{l} \text{m} \text{n} \text{o} \text{p} \text{q} \text{r} \text{s} \text{t} \text{u} \text{v} \text{w} \text{x} \text{y} \text{z}
+# \text{A} \text{B} \text{C} \text{D} \text{E} \text{F} \text{G} \text{H} \text{I} \text{J} \text{K} \text{L} \text{M} \text{N} \text{O} \text{P} \text{Q} \text{R} \text{S} \text{T} \text{U} \text{V} \text{W} \text{X} \text{Y} \text{Z}
+# \cdot \sum \alpha \beta + - \tims * / \leq \geq | ( ) = [ ] , \int
+# """.strip().replace("\n", " ")
+#     for macro in samples.split():
+#         try:
+#             if macro[0] != "\\" and len(macro) != 1:
+#                 for m in macro:
+#                     create_img(m)
+#             else:
+#                 create_img(macro)
+#         except Exception as e:
+#             print(e)
 
 def test4():
     MAX_DEPTH = 16
@@ -83,7 +84,7 @@ def test4():
         
         for cluster, box in zip(clusters, boxes):
             y, x, h, w = box
-            tgt = img.crop((x, y, x + w, y + h))
+            tgt = cluster.to_LA()
             if len(cluster.components) > 4 and depth < MAX_DEPTH:
                 inner(tgt, depth+1)
                 continue
@@ -97,20 +98,43 @@ def test4():
                     if max_sim < curr:
                         ans = f
                         max_sim = curr
-            if max_sim < 0.7 and depth < MAX_DEPTH:
+            if max_sim < 0.7 and depth < MAX_DEPTH and len(cluster.components) > 1:
                 inner(tgt, depth + 1)
                 continue
+            if max_sim < 0.7:
+                fp = f"data/q_{random.randint(0, 100)}"
+                tgt.save(f"{fp}.png")
+                Image.open(f"templates/{ans}").convert("L").resize(tgt.size).save(f"{fp}-1.png")
+                print(fp, ans)
             myTable.add_row([box, ans, max_sim, depth])
-    src_img = Image.open("data/in5.png")
+    src_img = Image.open("output_pil.png")
     src_img = src_img.convert("LA")
-    # src_img_arr = np.array(src_img)
-    # src_img_arr = cv2.GaussianBlur(src_img_arr, (5, 5), 0)
-    # src_img = Image.fromarray(src_img_arr)
     import time 
     start = time.time()
     inner(src_img)
     print(time.time() - start)
     print(myTable)
+
+def test5():
+    img = Image.open("out.png").convert("L")  # 灰階
+    enhancer = ImageEnhance.Contrast(img)
+    enhanced = enhancer.enhance(2.0)  # 數值 >1 增強對比度
+    enhanced.save("output_pil.png")
+
+def test6():
+    from mc import Component, ClusterGroup, extract_components_from_pil
+
+    img = Image.open("output_pil.png").convert("L")
+    comps, black_height, gray_image = extract_components_from_pil(img)
+    cluster = ClusterGroup(comps)
+    cluster.to_LA().save("test.png")
+
+def test7():
+    for root, dirs, files in os.walk("templates"):
+        for f in files:
+            img = ImageEnhance.Contrast(Image.open(f"{root}/{f}").convert("L")).enhance(4.0)
+            from pixelwise import _crop_img_obj
+            _crop_img_obj(img, (255,255,255)).convert("L").save(f"temp/{f}")
 
 if __name__ == "__main__":
     test4()
