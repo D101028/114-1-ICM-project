@@ -64,12 +64,28 @@ def test3():
 #         except Exception as e:
 #             print(e)
 
+def compute_similarity(src: Image.Image, tgt: Image.Image):
+    s: tuple[int, int] = tuple(map(min, zip(src.size, tgt.size))) # type: ignore
+    src = src.resize(s)
+    tgt = tgt.resize(s)
+    S1 = svd_feature(src)
+    S2 = svd_feature(tgt)
+
+    return S1.dot(S2) / (np.linalg.norm(S1) * np.linalg.norm(S2))
+
 def test4():
     MAX_DEPTH = 16
     # crop_func = lambda src_img: level_mark_components_and_clusters_pil(
     #     src_img, 4, 0.3, float('inf')
     # )
     myTable = PrettyTable(["y, x, h, w", "Answer", "Similarity", "Depth"])
+    sauce: dict[str, Image.Image] = {}
+    for root, dirs, files in os.walk("./templates"):
+        for f in files:
+            path = f"{root}/{f}"
+            src = Image.open(path)
+            sauce[f] = src
+    
     def inner(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0) -> None:
         # output_pil, centroids, clusters, boxes, black_height = level_mark_components_and_clusters_pil(
         #     img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, int(float('inf'))
@@ -84,31 +100,29 @@ def test4():
         
         for cluster, box in zip(clusters, boxes):
             y, x, h, w = box
-            tgt = cluster.to_LA()
+            tgt = cluster.to_L()
             if len(cluster.components) > 4 and depth < MAX_DEPTH:
                 inner(tgt, depth+1)
                 continue
             ans = None
             max_sim = 0
-            for root, dirs, files in os.walk("./templates"):
-                for f in files:
-                    path = f"{root}/{f}"
-                    src = Image.open(path)
-                    curr = dist_compare(src, tgt, (255,255,255))
-                    if max_sim < curr:
-                        ans = f
-                        max_sim = curr
+            for f, src in sauce.items():
+                curr = compute_similarity(src, tgt)
+                if max_sim < curr:
+                    ans = f
+                    max_sim = curr
             if max_sim < 0.7 and depth < MAX_DEPTH and len(cluster.components) > 1:
                 inner(tgt, depth + 1)
                 continue
-            if max_sim < 0.7:
+            if max_sim < 0.7 and ans is not None:
                 fp = f"data/q_{random.randint(0, 100)}"
                 tgt.save(f"{fp}.png")
                 Image.open(f"templates/{ans}").convert("L").resize(tgt.size).save(f"{fp}-1.png")
                 print(fp, ans)
             myTable.add_row([box, ans, max_sim, depth])
+
     src_img = Image.open("output_pil.png")
-    src_img = src_img.convert("LA")
+    src_img = src_img.convert("L")
     import time 
     start = time.time()
     inner(src_img)
@@ -127,7 +141,7 @@ def test6():
     img = Image.open("output_pil.png").convert("L")
     comps, black_height, gray_image = extract_components_from_pil(img)
     cluster = ClusterGroup(comps)
-    cluster.to_LA().save("test.png")
+    cluster.to_L().save("test.png")
 
 def test7():
     for root, dirs, files in os.walk("templates"):
@@ -136,5 +150,38 @@ def test7():
             from pixelwise import _crop_img_obj
             _crop_img_obj(img, (255,255,255)).convert("L").save(f"temp/{f}")
 
+def svd_feature(img: Image.Image):
+    # 1. 灰階 + resize（可調）
+    # img = Image.open(path).convert('L').resize((21, 27))
+    A = np.array(img, dtype=np.float32)
+
+    # 2. SVD
+    S = np.linalg.svd(A, compute_uv=False)
+
+    return S
+
+def test8():
+    a = Image.open("templates/z_66.png")
+    a = a.resize((64, 64))
+    tgt = ImageEnhance.Contrast(a.convert("L")).enhance(2.0)
+    tgt.save("out2.png")
+    from pixelwise import _crop_img_obj
+    tgt = _crop_img_obj(tgt, (255,255,255))
+    tgt.save("out2.png")
+    max_sim = 0
+    max_f = None
+    for root, dirs, files in os.walk("templates"):
+        for f in files:
+            img = Image.open(f"{root}/{f}").convert("L")
+            sim = compute_similarity(img, tgt)
+            if sim > 0.996:
+                print(sim, f)
+            if 'a' in f:
+                print(sim, f, "=========")
+            if sim > max_sim:
+                max_sim = sim 
+                max_f = f
+    print(max_sim, max_f)
+
 if __name__ == "__main__":
-    test4()
+    test8()

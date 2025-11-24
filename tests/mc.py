@@ -136,9 +136,10 @@ class ClusterGroup:
                 mask[y1:y1+h, x1:x1+w] |= c.mask
             self.mask_on_full = mask
 
-    def to_LA(self) -> Image.Image:
+    def to_L(self) -> Image.Image:
         y1, x1, h, w = self.get_bbox_yxhw()
-        canvas = Image.new("LA", (w, h), (255, 255))   # L=255, A=255 
+        # create a plain grayscale canvas (no alpha)
+        canvas = Image.new("L", (w, h), 255)
 
         for comp in self.components:
             cy1, cx1, ch, cw = comp.get_bbox_yxhw()
@@ -148,13 +149,12 @@ class ClusterGroup:
             mask = comp.mask
             pix = comp.pixels  # grayscale array (h,w)
 
-            # (L, A)
-            la = np.zeros((ch, cw, 2), dtype=np.uint8)
-            la[..., 0] = pix                          # L: 灰階
-            la[..., 1] = mask.astype(np.uint8) * 255  # A: 透明度
+            # component grayscale image
+            comp_img = Image.fromarray(pix.astype(np.uint8), mode="L")
+            # mask to control where to paste (still single-channel, no alpha in result)
+            mask_img = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
 
-            comp_img = Image.fromarray(la, mode="LA")
-            canvas.paste(comp_img, (rel_x1, rel_y1), comp_img)
+            canvas.paste(comp_img, (rel_x1, rel_y1), mask_img)
 
         return canvas
 
