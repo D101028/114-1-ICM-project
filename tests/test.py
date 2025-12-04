@@ -6,6 +6,7 @@ from prettytable import PrettyTable
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
+from mc import extract_components_from_pil
 from pixelwise import dist_compare
 
 def test0():
@@ -74,7 +75,7 @@ ABCDEFGHIJKLMNOPQRSTUVWXYZ
 def test4():
     MAX_DEPTH = 16
     myTable = PrettyTable(["y, x, h, w", "Answer", "Similarity", "Depth"])
-    
+
     sauce: dict[str, Image.Image] = {}
     for root, dirs, files in os.walk("./templates"):
         for f in files:
@@ -130,5 +131,15 @@ def test4():
     print(time.time() - start)
     print(myTable)
 
+def test1():
+    img: Image.Image = Image.open("data/in1.png")
+    img.convert("L")
+    out_pil, components, clusters, boxes, _ = lmccp2(img, 4, 0.1)
+    for cluster in clusters:
+        img1 = cluster.to_L()
+        img1.save("tmp.png")
+        return 
+    
+
 if __name__ == "__main__":
-    test4()
+    test1()
