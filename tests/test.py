@@ -39,46 +39,42 @@ def test3():
         name = macro.replace("\\", "_bs_") + "_" + str(random.randint(0, 100)) + ".png"
         if name[0] == "_":
             name = name[1:]
+        elif name[0] == ":":
+            name = "colon.png"
         print(name)
+        fp = f"templates/{name}"
         latex_symbol_to_png(
             macro, 
-            out_path = f"templates/{name}", 
+            out_path = fp, 
             background = (255,255,255)
         )
-    create_img("\\in")
-#     samples = r"""
-# 0123456789
-# abcdefghijklmnopqrstuvwxyz
-# ABCDEFGHIJKLMNOPQRSTUVWXYZ
-# \text{a} \text{b} \text{c} \text{d} \text{e} \text{f} \text{g} \text{h} \text{i} \text{j} \text{k} \text{l} \text{m} \text{n} \text{o} \text{p} \text{q} \text{r} \text{s} \text{t} \text{u} \text{v} \text{w} \text{x} \text{y} \text{z}
-# \text{A} \text{B} \text{C} \text{D} \text{E} \text{F} \text{G} \text{H} \text{I} \text{J} \text{K} \text{L} \text{M} \text{N} \text{O} \text{P} \text{Q} \text{R} \text{S} \text{T} \text{U} \text{V} \text{W} \text{X} \text{Y} \text{Z}
-# \cdot \sum \alpha \beta + - \tims * / \leq \geq | ( ) = [ ] , \int
-# """.strip().replace("\n", " ")
-#     for macro in samples.split():
-#         try:
-#             if macro[0] != "\\" and len(macro) != 1:
-#                 for m in macro:
-#                     create_img(m)
-#             else:
-#                 create_img(macro)
-#         except Exception as e:
-#             print(e)
-
-def compute_similarity(src: Image.Image, tgt: Image.Image):
-    s: tuple[int, int] = tuple(map(min, zip(src.size, tgt.size))) # type: ignore
-    src = src.resize(s)
-    tgt = tgt.resize(s)
-    S1 = svd_feature(src)
-    S2 = svd_feature(tgt)
-
-    return S1.dot(S2) / (np.linalg.norm(S1) * np.linalg.norm(S2))
+        img = ImageEnhance.Contrast(Image.open(fp).convert("L")).enhance(4.0)
+        from pixelwise import _crop_img_obj
+        _crop_img_obj(img, (255,255,255)).convert("L").save(fp)
+    create_img(":")
+    return 
+    samples = r"""
+0123456789
+abcdefghijklmnopqrstuvwxyz
+ABCDEFGHIJKLMNOPQRSTUVWXYZ
+\text{a} \text{b} \text{c} \text{d} \text{e} \text{f} \text{g} \text{h} \text{i} \text{j} \text{k} \text{l} \text{m} \text{n} \text{o} \text{p} \text{q} \text{r} \text{s} \text{t} \text{u} \text{v} \text{w} \text{x} \text{y} \text{z}
+\text{A} \text{B} \text{C} \text{D} \text{E} \text{F} \text{G} \text{H} \text{I} \text{J} \text{K} \text{L} \text{M} \text{N} \text{O} \text{P} \text{Q} \text{R} \text{S} \text{T} \text{U} \text{V} \text{W} \text{X} \text{Y} \text{Z}
+\cdot \sum \alpha \beta + - \tims * / \leq \geq | ( ) = [ ] , \int
+""".strip().replace("\n", " ")
+    for macro in samples.split():
+        try:
+            if macro[0] != "\\" and len(macro) != 1:
+                for m in macro:
+                    create_img(m)
+            else:
+                create_img(macro)
+        except Exception as e:
+            print(e)
 
 def test4():
     MAX_DEPTH = 16
-    # crop_func = lambda src_img: level_mark_components_and_clusters_pil(
-    #     src_img, 4, 0.3, float('inf')
-    # )
     myTable = PrettyTable(["y, x, h, w", "Answer", "Similarity", "Depth"])
+    
     sauce: dict[str, Image.Image] = {}
     for root, dirs, files in os.walk("./templates"):
         for f in files:
@@ -87,11 +83,8 @@ def test4():
             sauce[f] = src
     
     def inner(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0) -> None:
-        # output_pil, centroids, clusters, boxes, black_height = level_mark_components_and_clusters_pil(
-        #     img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, int(float('inf'))
-        # )
         output_pil, components, clusters, boxes, black_height = lmccp2(
-            img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, float('inf') # type: ignore
+            img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, 4
         )
         import random
         if len(boxes) == 1 and depth < MAX_DEPTH:
@@ -100,6 +93,7 @@ def test4():
         
         for cluster, box in zip(clusters, boxes):
             y, x, h, w = box
+            r = w / h
             tgt = cluster.to_L()
             if len(cluster.components) > 4 and depth < MAX_DEPTH:
                 inner(tgt, depth+1)
@@ -107,7 +101,12 @@ def test4():
             ans = None
             max_sim = 0
             for f, src in sauce.items():
-                curr = compute_similarity(src, tgt)
+                # 極端長寬比排除
+                r2 = src.size[1] / src.size[0]
+                if (not (0.1 < r < 10) or not (0.1 < r2 < 10)) and not (0.1 < r / r2 < 10):
+                    continue
+
+                curr = dist_compare(src, tgt, (255,255,255))
                 if max_sim < curr:
                     ans = f
                     max_sim = curr
@@ -121,67 +120,15 @@ def test4():
                 print(fp, ans)
             myTable.add_row([box, ans, max_sim, depth])
 
-    src_img = Image.open("output_pil.png")
+    src_img = Image.open("data/in1.png")
     src_img = src_img.convert("L")
+    enhancer = ImageEnhance.Contrast(src_img)
+    src_img = enhancer.enhance(2.0)
     import time 
     start = time.time()
     inner(src_img)
     print(time.time() - start)
     print(myTable)
 
-def test5():
-    img = Image.open("out.png").convert("L")  # 灰階
-    enhancer = ImageEnhance.Contrast(img)
-    enhanced = enhancer.enhance(2.0)  # 數值 >1 增強對比度
-    enhanced.save("output_pil.png")
-
-def test6():
-    from mc import Component, ClusterGroup, extract_components_from_pil
-
-    img = Image.open("output_pil.png").convert("L")
-    comps, black_height, gray_image = extract_components_from_pil(img)
-    cluster = ClusterGroup(comps)
-    cluster.to_L().save("test.png")
-
-def test7():
-    for root, dirs, files in os.walk("templates"):
-        for f in files:
-            img = ImageEnhance.Contrast(Image.open(f"{root}/{f}").convert("L")).enhance(4.0)
-            from pixelwise import _crop_img_obj
-            _crop_img_obj(img, (255,255,255)).convert("L").save(f"temp/{f}")
-
-def svd_feature(img: Image.Image):
-    # 1. 灰階 + resize（可調）
-    # img = Image.open(path).convert('L').resize((21, 27))
-    A = np.array(img, dtype=np.float32)
-
-    # 2. SVD
-    S = np.linalg.svd(A, compute_uv=False)
-
-    return S
-
-def test8():
-    a = Image.open("templates/z_66.png")
-    a = a.resize((64, 64))
-    tgt = ImageEnhance.Contrast(a.convert("L")).enhance(2.0)
-    tgt.save("out2.png")
-    from pixelwise import _crop_img_obj
-    tgt = _crop_img_obj(tgt, (255,255,255))
-    tgt.save("out2.png")
-    max_sim = 0
-    max_f = None
-    for root, dirs, files in os.walk("templates"):
-        for f in files:
-            img = Image.open(f"{root}/{f}").convert("L")
-            sim = compute_similarity(img, tgt)
-            if sim > 0.996:
-                print(sim, f)
-            if 'a' in f:
-                print(sim, f, "=========")
-            if sim > max_sim:
-                max_sim = sim 
-                max_f = f
-    print(max_sim, max_f)
-
 if __name__ == "__main__":
-    test8()
+    test4()

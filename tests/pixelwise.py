@@ -51,55 +51,7 @@ def crop_img(input_path: str,
 
     return out
 
-def compare_img(img1: Image.Image, img2: Image.Image, to_size: tuple[int, int] | None = None, max_samples: int = 8192) -> float:
-    """
-    Resize two PIL Images to `to_size` (default 128x128), sample up to `max_samples`
-    pixels (evenly distributed) and return the ratio of similarity (0.0 - 1.0).
-    """
-    if to_size is None:
-        to_size = (128, 128)
-
-    resample = getattr(Image, "LANCZOS", Image.BICUBIC)
-
-    a = img1.resize(to_size, resample).convert("RGBA")
-    b = img2.resize(to_size, resample).convert("RGBA")
-
-    total = to_size[0] * to_size[1]
-    if total == 0:
-        return 0.0
-
-    # sample every `step`-th pixel to keep comparisons bounded
-    step = max(1, total // max_samples)
-
-    it_a = a.getdata()
-    it_b = b.getdata()
-
-    arr_a = np.asarray(a, dtype=np.uint8).reshape(-1, 4)
-    arr_b = np.asarray(b, dtype=np.uint8).reshape(-1, 4)
-
-    indices = np.arange(0, arr_a.shape[0], step)
-    sampled = indices.size
-
-    if sampled == 0:
-        same = 0.0
-    else:
-        # use RGB vector distance -> similarity in [0,1]
-        a_rgb = arr_a[indices, :3].astype(np.float32)
-        b_rgb = arr_b[indices, :3].astype(np.float32)
-
-        diff = a_rgb - b_rgb
-        dist = np.linalg.norm(diff, axis=1)  # Euclidean distance per pixel
-
-        max_dist = 255.0 * (3 ** 0.5)
-        sim = 1.0 - (dist / max_dist)
-        sim = np.clip(sim, 0.0, 1.0)
-
-        # average similarity is sum(sim) / sampled; keep numerator to match final return
-        same = float(np.sum(sim))
-
-    return (same / sampled) if sampled else 0.0
-
-def _crop_img_obj(img: Image.Image, bg_color: tuple[int, int, int] | None):
+def _crop_img_obj(img: Image.Image, bg_color: tuple[int, int, int] | None = (255, 255, 255)):
     # Use alpha if requested/available
     if bg_color is None and (img.mode in ("RGBA", "LA") or ("transparency" in img.info)):
         if img.mode not in ("RGBA", "LA"):
@@ -116,37 +68,26 @@ def _crop_img_obj(img: Image.Image, bg_color: tuple[int, int, int] | None):
         bbox = diff.getbbox()
         return img.crop(bbox) if bbox else img
 
-def dist_compare(img1: Image.Image, img2: Image.Image, bg: tuple[int, int, int] | None = None) -> float:
+def dist_compare(img1: Image.Image, img2: Image.Image, 
+                 bg: tuple[int, int, int] | None = (255, 255, 255), 
+                 to_crop: bool = False) -> float:
     """
     Crop non-background regions from img1 and img2 (if bg is None, prefer transparency as background),
     resize img1 or img2 size, and return the similarity ratio [0, 1] between the two images' pixel vectors.
     """
-
-    img1_c = _crop_img_obj(img1, bg)
-    img2_c = _crop_img_obj(img2, bg)
-
-    # # 如果長寬比差太多，直接回傳 0.0
-    # w1, h1 = img1_c.size
-    # w2, h2 = img2_c.size
-    # # 避免除以零
-    # ar1 = (w1 / h1) if h1 else float("inf")
-    # ar2 = (w2 / h2) if h2 else float("inf")
-    # # 若任一比例為無限或兩者比值過大則視為差異太大（閾值 2.0，可調）
-    # if max(ar1 / ar2 if ar2 else float("inf"), ar2 / ar1 if ar1 else float("inf")) > 1.5:
-    #     return 0.0
+    if to_crop:
+        img1 = _crop_img_obj(img1, bg)
+        img2 = _crop_img_obj(img2, bg)
 
     # Resize target to source size
-    resample = getattr(Image, "LANCZOS", Image.BICUBIC)
-    if img1_c.size < img2_c.size:
-        img2_c = img2_c.resize(img1_c.size, resample)
-    elif img1_c.size > img2_c.size:
-        img1_c = img1_c.resize(img2_c.size, resample)
+    if img1.size < img2.size:
+        img2 = img2.resize(img1.size)
+    elif img1.size > img2.size:
+        img1 = img1.resize(img2.size)
 
     # Coerce both to the same mode (RGBA) and compute L2 on flattened arrays
-    a = img1_c.convert("RGBA")
-    b = img2_c.convert("RGBA")
-    # a = ImageEnhance.Contrast(img1_c.convert("L")).enhance(2.0)
-    # b = ImageEnhance.Contrast(img2_c.convert("L")).enhance(2.0)
+    a = img1.convert("RGBA")
+    b = img2.convert("RGBA")
 
     arr1 = np.asarray(a, dtype=np.float32).ravel()
     arr2 = np.asarray(b, dtype=np.float32).ravel()
@@ -155,7 +96,7 @@ def dist_compare(img1: Image.Image, img2: Image.Image, bg: tuple[int, int, int] 
     max_distance = np.sqrt(len(arr1)) * 255  # Maximum possible distance
 
     similarity = 1 - (l2_distance / max_distance)
-    return float(np.clip(similarity, 0, 1))
+    return float(np.clip(similarity, 0, 1)) # ensure the value is in [0, 1]
 
 if __name__ == "__main__":
     img1 = crop_img('data/in3.png')

@@ -164,15 +164,17 @@ class ClusterGroup:
     def get_centroid(self) -> Tuple[int,int]:
         return self.centroid
 
-# ----- clustering utilities (operate on centroids lists) -----
 def level_cluster_centroids(centroids: List[Tuple[float,float]], threshold: float, wx=1.0, wy=1.0) -> List[List[int]]:
     """
-    基本的 cluster (BFS) 基於加權歐式距離。輸入 centroids 為 [(cx,cy), ...]。
-    回傳：list of clusters，cluster 是 index list。
+    對 centroids 做 cluster (BFS) based on 加權歐式距離 \\sqrt{wx\\*dx + wy\\*dy}。
+    - 輸入 centroids 為 [(cx,cy), ...]。
+    - 回傳：list of clusters，cluster 是 index list。
     """
     n = len(centroids)
     visited = [False] * n
     clusters = []
+
+    sqr_thr = threshold * threshold
 
     for i in range(n):
         if visited[i]:
@@ -193,7 +195,7 @@ def level_cluster_centroids(centroids: List[Tuple[float,float]], threshold: floa
                 dx = (cx - x) * wx
                 dy = (cy - y) * wy
                 dist2 = dx*dx + dy*dy
-                if dist2 <= threshold * threshold:
+                if dist2 <= sqr_thr:
                     visited[j] = True
                     queue.append(j)
                     cluster.append(j)
@@ -202,21 +204,6 @@ def level_cluster_centroids(centroids: List[Tuple[float,float]], threshold: floa
 
     return clusters
 
-def check_too_tight(points: List[Tuple[float,float]], tighten_ratio: float):
-    """
-    判斷 cluster 裡的點是否非常靠近：用 bbox 對角線與 tighten_ratio 做比較。
-    points: list of (x,y) or (cx,cy)
-    若 diag < tighten_ratio -> too tight
-    """
-    if len(points) == 0:
-        return True
-    xs = [p[0] for p in points]
-    ys = [p[1] for p in points]
-    dx = max(xs) - min(xs)
-    dy = max(ys) - min(ys)
-    diag = math.hypot(dx, dy)
-    return diag < tighten_ratio
-
 def hierarchical_cluster(
     components: List[Component],
     base_threshold: float,
@@ -224,21 +211,24 @@ def hierarchical_cluster(
     wy=1.0,
     refine_min_size=4,
     refine_ratio=0.5,
-    tighten_ratio=0.1,
+    max_depth=12, 
     build_cluster_masks: bool=False,
     image_shape: Tuple[int,int] | None=None
 ) -> List[ClusterGroup]:
     """
-    分層式 clustering，輸入 components 列表（每個有 centroid）。
-    參數語意與原來程式相同。
-    回傳：ClusterGroup list（每個包含其 components 與聚合資訊）。
+    分層式 clustering。對 components 的 centroids 組成做 cluster。
+    若 each cluster 有超過 refine_min_size 個 centroids，則 refine ratio 後遞迴，直至低於 refine_min_size 或者超過遞迴深度。
+    
+    - 輸入： components 列表（每個有 centroid）。
+    - 回傳：ClusterGroup list（每個包含其 components 與聚合資訊）。
+    
     若 build_cluster_masks=True，則會為每個 cluster 建立 full-image mask（需要 image_shape）。
     """
 
     # 提取 centroids 簡化運算
     centroids = [c.centroid_float for c in components]
 
-    def recurse(index_list: List[int], threshold: float) -> List[List[int]]:
+    def recurse(index_list: List[int], threshold: float, depth: int = 0) -> List[List[int]]:
         """
         index_list: list of indices into components
         threshold: current threshold
@@ -257,20 +247,12 @@ def hierarchical_cluster(
         results = []
         for sub in sub_clusters:
             global_sub = [index_list[i] for i in sub]
-            pts_sub = [centroids[i] for i in global_sub]
 
-            size_trigger = len(global_sub) >= refine_min_size
-
-            if tighten_ratio > 0:
-                too_tight = check_too_tight(pts_sub, tighten_ratio)
-            else:
-                too_tight = False
-
-            if (not size_trigger) or too_tight:
+            if len(global_sub) < refine_min_size or depth >= max_depth:
                 results.append(global_sub)
             else:
                 new_thr = threshold * refine_ratio
-                results.extend(recurse(global_sub, new_thr))
+                results.extend(recurse(global_sub, new_thr, depth+1))
 
         return results
 
@@ -278,7 +260,7 @@ def hierarchical_cluster(
     partitioned_index_lists = recurse(top_index_list, base_threshold)
 
     # build ClusterGroup objects
-    clusters = []
+    clusters: List[ClusterGroup] = []
     for idx_list in partitioned_index_lists:
         comps = [components[i] for i in idx_list]
         cluster = ClusterGroup(comps, build_full_mask=build_cluster_masks, full_shape=image_shape)
@@ -286,7 +268,6 @@ def hierarchical_cluster(
 
     return clusters
 
-# ----- 主流程：基於 Component 物件 -----
 def extract_components_from_pil(
     input_image: Image.Image,
     binary_threshold: int = 127,
@@ -332,11 +313,11 @@ def level_mark_components_and_clusters_pil(
     wy=1.0,
     refine_min_size=4,
     refine_ratio=0.5,
-    tighten_ratio=0.1,
     binary_threshold: int = 127,
 ):
     """
-    與原先功能等價但以 Component/ClusterGroup 為主體。
+    分層式圖像分割。
+    
     回傳：
     - output_pil: 繪製結果的 PIL image (BGR->RGB 輸出)
     - components: list[Component]
@@ -358,9 +339,8 @@ def level_mark_components_and_clusters_pil(
         wy=wy,
         refine_min_size=refine_min_size,
         refine_ratio=refine_ratio,
-        tighten_ratio=tighten_ratio,
         build_cluster_masks=False,
-        image_shape=gray.shape
+        image_shape=gray.shape # type: ignore
     )
 
     # draw output (BGR)
@@ -369,7 +349,7 @@ def level_mark_components_and_clusters_pil(
     # draw centroids and individual bboxes (optional)
     for comp in components:
         cx, cy = comp.get_centroid()
-        cv2.circle(out, (cx, cy), 2, (0, 0, 255), -1)
+        cv2.circle(out, (cx, cy), 1, (0, 0, 255), -1)
         # draw small bbox (component)
         x1, y1, x2, y2 = comp.get_bbox_xyxy()
         cv2.rectangle(out, (x1, y1), (x2, y2), (128, 128, 128), 1)
@@ -381,10 +361,10 @@ def level_mark_components_and_clusters_pil(
         Y2 = Y1 + h - 1
         X2 = X1 + w - 1
         boxes.append((Y1, X1, h, w))
-        cv2.rectangle(out, (X1, Y1), (X2, Y2), (0, 255, 0), 2)
+        cv2.rectangle(out, (X1, Y1), (X2, Y2), (0, 255, 0), 1)
         # draw cluster centroid
-        cx, cy = cluster.get_centroid()
-        cv2.circle(out, (cx, cy), 3, (255, 0, 0), -1)
+        # cx, cy = cluster.get_centroid()
+        # cv2.circle(out, (cx, cy), 1, (255, 0, 0), -1)
 
     output_pil = Image.fromarray(out)
 
@@ -397,7 +377,7 @@ if __name__ == "__main__":
     # 範例：載入一張圖，並執行
     img = Image.open("test.png")  # 改成你的檔案
     out_img, components, clusters, boxes, black_h = level_mark_components_and_clusters_pil(
-        img, wx=1.0, wy=1.0, refine_min_size=4, refine_ratio=0.5, tighten_ratio=0.1
+        img, wx=1.0, wy=1.0, refine_min_size=4, refine_ratio=0.5, 
     )
     print("Components:", len(components))
     print("Clusters:", len(clusters))
