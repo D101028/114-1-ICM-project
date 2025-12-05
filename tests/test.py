@@ -105,7 +105,7 @@ def adaptive_cluster(
             image_shape=gray.shape # type: ignore
         )
 
-        if len(clusters) == 1 and depth < max_depth:
+        if len(clusters) == 1 and len(clusters[0].components) > 1 and depth < max_depth:
             return recurse(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2, topleft)
         
         rec_out: AdaptiveReturnType = []
@@ -120,10 +120,12 @@ def adaptive_cluster(
             ans = None
             max_sim = 0.0
             for f, src in sauce.items():
-                # 極端長寬比排除
-                r2 = src.size[1] / src.size[0]
-                if (not (0.1 < r < 10) or not (0.1 < r2 < 10)) and not (0.1 < r / r2 < 10):
-                    continue
+                # # 極端長寬比排除
+                # r2 = src.size[1] / src.size[0]
+                # if (not (0.1 < r < 10) or not (0.1 < r2 < 10)) and not (0.1 < r / r2 < 10):
+                #     continue
+
+                # print(f, r, r2) if r <= 0.1 and r2 <= 0.1 else None
 
                 curr = dist_compare(src, tgt, (255,255,255))
                 if max_sim < curr:
@@ -147,7 +149,7 @@ def test4():
             src = Image.open(path)
             sauce[f] = src
     
-    src_img = Image.open("data/in1.png")
+    src_img = Image.open("test3.png")
     src_img = src_img.convert("L")
     enhancer = ImageEnhance.Contrast(src_img)
     src_img = enhancer.enhance(2.0)
@@ -159,17 +161,17 @@ def test4():
 
     myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity", "TopLeft"])
     tableRows = []
-    for cluster_gp, ans, sim, topleft in out:
+    for cluster, ans, sim, topleft in out:
         dy, dx = topleft
-        y, x, h, w = cluster_gp.get_bbox_yxhw()
-        cx, cy = cluster_gp.get_centroid()
+        y, x, h, w = cluster.get_bbox_yxhw()
+        cx, cy = cluster.get_centroid()
         tableRows.append([
             (y+dy, x+dx, h, w), 
             (cx+dx, cy+dy), 
             ans, sim, topleft
         ])
         draw = ImageDraw.Draw(src_img)
-        draw.rectangle((x+dx, y+dy, x+dx+w, y+dy+h), None)
+        draw.rectangle((x+dx, y+dy, x+dx+w, y+dy+h), None, 0 if sim >= 0.7 else 128)
     tableRows.sort(
         key = lambda row: row[1][0]
     )
@@ -179,11 +181,15 @@ def test4():
     print(myTable)
 
 def test1():
-    img: Image.Image = Image.open("data/in1.png")
-    img.convert("L")
-    components, _, _ = extract_components_from_pil(img)
-    cluster = ClusterGroup(components[:5])
-    print(cluster.get_centroid())
+    
+    sauce: dict[AnsType, Image.Image] = {}
+    for root, dirs, files in os.walk("./templates"):
+        for f in files:
+            path = f"{root}/{f}"
+            src = Image.open(path)
+            sauce[f] = src
+    for f, src in sauce.items():
+        print(f, src.size[1] / src.size[0])
     
 
 if __name__ == "__main__":
