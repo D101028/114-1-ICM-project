@@ -1,12 +1,13 @@
 import numpy as np
 import cv2
 import os
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
+from typing import List, Tuple
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
-from mc import extract_components_from_pil
+from mc import ClusterGroup, extract_components_from_pil
 from pixelwise import dist_compare
 
 def test0():
@@ -72,35 +73,32 @@ ABCDEFGHIJKLMNOPQRSTUVWXYZ
         except Exception as e:
             print(e)
 
-def test4():
-    MAX_DEPTH = 16
-    myTable = PrettyTable(["y, x, h, w", "Answer", "Similarity", "Depth"])
+AnsType = str | None
+SimType = float
+AdaptiveReturnType = List[Tuple[ClusterGroup, AnsType, SimType, Tuple[int, int]]]
 
-    sauce: dict[str, Image.Image] = {}
-    for root, dirs, files in os.walk("./templates"):
-        for f in files:
-            path = f"{root}/{f}"
-            src = Image.open(path)
-            sauce[f] = src
-    
-    def inner(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0) -> None:
+def adaptive_cluster(
+        img: Image.Image, sauce: dict[AnsType, Image.Image], accept_sim = 0.7, max_depth = 16
+        ) -> AdaptiveReturnType:
+
+    def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> AdaptiveReturnType:
         output_pil, components, clusters, boxes, black_height = lmccp2(
             img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, 4
         )
-        import random
-        if len(boxes) == 1 and depth < MAX_DEPTH:
-            return inner(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2)
-        output_pil.save(f"./data/p_{depth}_{random.randint(0, 1000)}.png")
+        if len(boxes) == 1 and depth < max_depth:
+            return recurse(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2, topleft)
         
+        rec_out: AdaptiveReturnType = []
         for cluster, box in zip(clusters, boxes):
             y, x, h, w = box
+            curr_topleft = (topleft[0] + , topleft[1] + )
             r = w / h
             tgt = cluster.to_L()
-            if len(cluster.components) > 4 and depth < MAX_DEPTH:
-                inner(tgt, depth+1)
+            if len(cluster.components) > 4 and depth < max_depth:
+                rec_out.extend(recurse(tgt, depth+1, topleft=curr_topleft))
                 continue
             ans = None
-            max_sim = 0
+            max_sim = 0.0
             for f, src in sauce.items():
                 # 極端長寬比排除
                 r2 = src.size[1] / src.size[0]
@@ -111,35 +109,62 @@ def test4():
                 if max_sim < curr:
                     ans = f
                     max_sim = curr
-            if max_sim < 0.7 and depth < MAX_DEPTH and len(cluster.components) > 1:
-                inner(tgt, depth + 1)
+            if max_sim < accept_sim and depth < max_depth and len(cluster.components) > 1:
+                rec_out.extend(recurse(tgt, depth+1, topleft=curr_topleft))
                 continue
-            if max_sim < 0.7 and ans is not None:
-                fp = f"data/q_{random.randint(0, 100)}"
-                tgt.save(f"{fp}.png")
-                Image.open(f"templates/{ans}").convert("L").resize(tgt.size).save(f"{fp}-1.png")
-                print(fp, ans)
-            myTable.add_row([box, ans, max_sim, depth])
+            if max_sim < accept_sim and ans is not None:
+                print("doubted ans: ", ans, max_sim)
+            rec_out.append((cluster, ans, max_sim, curr_topleft))
+        return rec_out
+    
+    return recurse(img)
 
-    src_img = Image.open("data/in1.png")
+def test4():
+    MAX_DEPTH = 16
+
+    sauce: dict[AnsType, Image.Image] = {}
+    for root, dirs, files in os.walk("./templates"):
+        for f in files:
+            path = f"{root}/{f}"
+            src = Image.open(path)
+            sauce[f] = src
+    
+    src_img = Image.open("data/in0.png")
     src_img = src_img.convert("L")
     enhancer = ImageEnhance.Contrast(src_img)
     src_img = enhancer.enhance(2.0)
+
     import time 
     start = time.time()
-    inner(src_img)
+    out = adaptive_cluster(src_img, sauce)
     print(time.time() - start)
+
+    myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity"])
+    tableRows = []
+    for cluster_gp, ans, sim, topleft in out:
+        dy, dx = topleft
+        y, x, h, w = cluster_gp.get_bbox_yxhw()
+        cx, cy = cluster_gp.get_centroid()
+        tableRows.append([
+            (y+dy, x+dx, h, w), 
+            (cx+dx, cy+dy), 
+            ans, sim
+        ])
+    tableRows.sort(
+        key = lambda row: row[1][0]
+    )
+    for row in tableRows:
+        myTable.add_row(row)
+    src_img.save("test.png")
     print(myTable)
 
 def test1():
     img: Image.Image = Image.open("data/in1.png")
     img.convert("L")
-    out_pil, components, clusters, boxes, _ = lmccp2(img, 4, 0.1)
-    for cluster in clusters:
-        img1 = cluster.to_L()
-        img1.save("tmp.png")
-        return 
+    components, _, _ = extract_components_from_pil(img)
+    cluster = ClusterGroup(components[:5])
+    print(cluster.get_centroid())
     
 
 if __name__ == "__main__":
-    test1()
+    test4()

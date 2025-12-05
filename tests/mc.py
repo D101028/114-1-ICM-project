@@ -162,6 +162,7 @@ class ClusterGroup:
         return self.bbox_yxhw
 
     def get_centroid(self) -> Tuple[int,int]:
+        """Return centroid in (x, y)"""
         return self.centroid
 
 def level_cluster_centroids(centroids: List[Tuple[float,float]], threshold: float, wx=1.0, wy=1.0) -> List[List[int]]:
@@ -270,7 +271,7 @@ def hierarchical_cluster(
 
 def extract_components_from_pil(
     input_image: Image.Image,
-    binary_threshold: int = 127,
+    binary_threshold: int = 127
 ) -> Tuple[List[Component], int, np.ndarray]:
     """
     從 PIL Image 中找出 connected components 並回傳 Component 物件列表。
@@ -328,7 +329,7 @@ def level_mark_components_and_clusters_pil(
     # extract components
     components, black_height, gray = extract_components_from_pil(input_image, binary_threshold=binary_threshold)
 
-    # threshold 決定（維持原始邏輯）
+    # threshold 
     base_threshold = black_height * 0.4
 
     # clustering
