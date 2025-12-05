@@ -272,23 +272,30 @@ def hierarchical_cluster(
 def extract_components_from_pil(
     input_image: Image.Image,
     binary_threshold: int = 127
-) -> Tuple[List[Component], int, np.ndarray]:
+) -> Tuple[List[Component], Tuple[int, int, int, int], np.ndarray]:
     """
     從 PIL Image 中找出 connected components 並回傳 Component 物件列表。
     - binary_threshold: 灰階<=threshold視為前景
-    - 返回 (components, black_height, gray_image)
-    black_height: 前景在 y 軸上的高度（用來決定 threshold）
+    - 返回 (components, bbox_yxhw, gray_image)
     """
     gray = np.array(input_image.convert("L"))
     binary = (gray <= binary_threshold).astype(np.uint8)
 
-    # 找黑色塊的垂直範圍（決定 black_height）
+    # 找黑色塊的完整 bbox (y, x, h, w)
     rows = np.any(binary == 1, axis=1)
+    cols = np.any(binary == 1, axis=0)
     ys = np.where(rows)[0]
-    if len(ys) == 0:
-        black_height = 0
+    xs = np.where(cols)[0]
+    if len(ys) == 0 or len(xs) == 0:
+        bbox_yxhw = (0, 0, 0, 0)
     else:
-        black_height = int(ys.max() - ys.min() + 1)
+        y1 = int(ys.min())
+        y2 = int(ys.max())
+        x1 = int(xs.min())
+        x2 = int(xs.max())
+        h = y2 - y1 + 1
+        w = x2 - x1 + 1
+        bbox_yxhw = (y1, x1, h, w)
 
     # connected components
     structure = np.ones((3,3), dtype=int)
@@ -306,7 +313,7 @@ def extract_components_from_pil(
         comp = Component(label_id=i, centroid=(cy, cx), coords=coords, full_gray_image=gray) # type: ignore
         components.append(comp)
 
-    return components, black_height, gray
+    return components, bbox_yxhw, gray
 
 def level_mark_components_and_clusters_pil(
     input_image: Image.Image,
@@ -327,10 +334,10 @@ def level_mark_components_and_clusters_pil(
     - black_height: 計算到的黑色區域高度（用來決定 base_threshold）
     """
     # extract components
-    components, black_height, gray = extract_components_from_pil(input_image, binary_threshold=binary_threshold)
+    components, bbox_yxhw, gray = extract_components_from_pil(input_image, binary_threshold=binary_threshold)
 
     # threshold 
-    base_threshold = black_height * 0.4
+    base_threshold = bbox_yxhw[2] * 0.4
 
     # clustering
     clusters = hierarchical_cluster(
@@ -369,7 +376,7 @@ def level_mark_components_and_clusters_pil(
 
     output_pil = Image.fromarray(out)
 
-    return output_pil, components, clusters, boxes, black_height
+    return output_pil, components, clusters, boxes, bbox_yxhw[2]
 
 # ------------------------
 # 使用範例（示範）

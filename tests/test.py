@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
-from mc import ClusterGroup, extract_components_from_pil
+from mc import ClusterGroup, extract_components_from_pil, hierarchical_cluster
 from pixelwise import dist_compare
 
 def test0():
@@ -79,23 +79,43 @@ AdaptiveReturnType = List[Tuple[ClusterGroup, AnsType, SimType, Tuple[int, int]]
 
 def adaptive_cluster(
         img: Image.Image, sauce: dict[AnsType, Image.Image], accept_sim = 0.7, max_depth = 16
-        ) -> AdaptiveReturnType:
+    ) -> AdaptiveReturnType:
 
     def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> AdaptiveReturnType:
-        output_pil, components, clusters, boxes, black_height = lmccp2(
-            img, 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y, 4
+        wx = 2 + 0.1 * fix_ratio_x
+        wy = 0.1 + 0.1 * fix_ratio_y
+        refine_min_size = 4
+        refine_ratio = 0.5
+
+        # extract components
+        components, bbox_yxhw, gray = extract_components_from_pil(img)
+
+        # threshold 
+        base_threshold = bbox_yxhw[2] * 0.4
+
+        # clustering
+        clusters = hierarchical_cluster(
+            components,
+            base_threshold=base_threshold,
+            wx=wx,
+            wy=wy,
+            refine_min_size=refine_min_size,
+            refine_ratio=refine_ratio,
+            build_cluster_masks=False,
+            image_shape=gray.shape # type: ignore
         )
-        if len(boxes) == 1 and depth < max_depth:
+
+        if len(clusters) == 1 and depth < max_depth:
             return recurse(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2, topleft)
         
         rec_out: AdaptiveReturnType = []
-        for cluster, box in zip(clusters, boxes):
-            y, x, h, w = box
-            curr_topleft = (topleft[0] + , topleft[1] + )
+        for cluster in clusters:
+            y, x, h, w = cluster.get_bbox_yxhw()
+            next_topleft = (topleft[0] + y, topleft[1] + x)
             r = w / h
             tgt = cluster.to_L()
             if len(cluster.components) > 4 and depth < max_depth:
-                rec_out.extend(recurse(tgt, depth+1, topleft=curr_topleft))
+                rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
                 continue
             ans = None
             max_sim = 0.0
@@ -110,18 +130,16 @@ def adaptive_cluster(
                     ans = f
                     max_sim = curr
             if max_sim < accept_sim and depth < max_depth and len(cluster.components) > 1:
-                rec_out.extend(recurse(tgt, depth+1, topleft=curr_topleft))
+                rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
                 continue
             if max_sim < accept_sim and ans is not None:
                 print("doubted ans: ", ans, max_sim)
-            rec_out.append((cluster, ans, max_sim, curr_topleft))
+            rec_out.append((cluster, ans, max_sim, topleft))
         return rec_out
     
     return recurse(img)
 
 def test4():
-    MAX_DEPTH = 16
-
     sauce: dict[AnsType, Image.Image] = {}
     for root, dirs, files in os.walk("./templates"):
         for f in files:
@@ -129,7 +147,7 @@ def test4():
             src = Image.open(path)
             sauce[f] = src
     
-    src_img = Image.open("data/in0.png")
+    src_img = Image.open("data/in1.png")
     src_img = src_img.convert("L")
     enhancer = ImageEnhance.Contrast(src_img)
     src_img = enhancer.enhance(2.0)
@@ -139,7 +157,7 @@ def test4():
     out = adaptive_cluster(src_img, sauce)
     print(time.time() - start)
 
-    myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity"])
+    myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity", "TopLeft"])
     tableRows = []
     for cluster_gp, ans, sim, topleft in out:
         dy, dx = topleft
@@ -148,8 +166,10 @@ def test4():
         tableRows.append([
             (y+dy, x+dx, h, w), 
             (cx+dx, cy+dy), 
-            ans, sim
+            ans, sim, topleft
         ])
+        draw = ImageDraw.Draw(src_img)
+        draw.rectangle((x+dx, y+dy, x+dx+w, y+dy+h), None)
     tableRows.sort(
         key = lambda row: row[1][0]
     )
