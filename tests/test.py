@@ -1,9 +1,10 @@
 import numpy as np
 import cv2
 import os
+import sys
 from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
@@ -38,7 +39,7 @@ def test0():
 def test3():
     import random
     def create_img(macro: str):
-        name = macro.replace("\\", "_bs_") + "_" + str(random.randint(0, 100)) + ".png"
+        name = macro.replace("\\", "_bs_").replace("|", "_vert_") + "_" + str(random.randint(0, 100)) + ".png"
         if name[0] == "_":
             name = name[1:]
         elif name[0] == ":":
@@ -53,7 +54,7 @@ def test3():
         img = ImageEnhance.Contrast(Image.open(fp).convert("L")).enhance(4.0)
         from pixelwise import _crop_img_obj
         _crop_img_obj(img, (255,255,255)).convert("L").save(fp)
-    create_img(":")
+    create_img("|")
     return 
     samples = r"""
 0123456789
@@ -76,9 +77,10 @@ ABCDEFGHIJKLMNOPQRSTUVWXYZ
 AnsType = str | None
 SimType = float
 AdaptiveReturnType = List[Tuple[ClusterGroup, AnsType, SimType, Tuple[int, int]]]
+SauceType = Dict[AnsType, Tuple[Image.Image, float]]
 
 def adaptive_cluster(
-        img: Image.Image, sauce: dict[AnsType, Image.Image], accept_sim = 0.7, max_depth = 16
+        img: Image.Image, sauce: SauceType, accept_sim = 0.7, max_depth = 16
     ) -> AdaptiveReturnType:
 
     def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> AdaptiveReturnType:
@@ -112,25 +114,40 @@ def adaptive_cluster(
         for cluster in clusters:
             y, x, h, w = cluster.get_bbox_yxhw()
             next_topleft = (topleft[0] + y, topleft[1] + x)
-            r = w / h
+            r = h / w
             tgt = cluster.to_L()
             if len(cluster.components) > 4 and depth < max_depth:
                 rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
                 continue
             ans = None
             max_sim = 0.0
-            for f, src in sauce.items():
-                # # 極端長寬比排除
-                # r2 = src.size[1] / src.size[0]
-                # if (not (0.1 < r < 10) or not (0.1 < r2 < 10)) and not (0.1 < r / r2 < 10):
-                #     continue
+            if r < 0.1:
+                for f, (src, yx_ratio) in sauce.items():
+                    if yx_ratio > 0.125:
+                        continue
+                    curr = dist_compare(src, tgt, (255,255,255))
+                    
+                    if max_sim < curr:
+                        ans = f
+                        max_sim = curr
+            elif r > 10:
+                for f, (src, yx_ratio) in sauce.items():
+                    if yx_ratio < 8:
+                        continue
 
-                # print(f, r, r2) if r <= 0.1 and r2 <= 0.1 else None
-
-                curr = dist_compare(src, tgt, (255,255,255))
-                if max_sim < curr:
-                    ans = f
-                    max_sim = curr
+                    curr = dist_compare(src, tgt, (255,255,255))
+                    if max_sim < curr:
+                        ans = f
+                        max_sim = curr
+            else:
+                for f, (src, yx_ratio) in sauce.items():
+                    if yx_ratio > 10 or yx_ratio < 0.1:
+                        continue
+                    curr = dist_compare(src, tgt, (255,255,255))
+                    if max_sim < curr:
+                        ans = f
+                        max_sim = curr
+            
             if max_sim < accept_sim and depth < max_depth and len(cluster.components) > 1:
                 rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
                 continue
@@ -142,14 +159,14 @@ def adaptive_cluster(
     return recurse(img)
 
 def test4():
-    sauce: dict[AnsType, Image.Image] = {}
+    sauce: SauceType = {}
     for root, dirs, files in os.walk("./templates"):
         for f in files:
             path = f"{root}/{f}"
             src = Image.open(path)
-            sauce[f] = src
+            sauce[f] = (src, src.size[1] / src.size[0])
     
-    src_img = Image.open("test3.png")
+    src_img = Image.open(sys.argv[1])
     src_img = src_img.convert("L")
     enhancer = ImageEnhance.Contrast(src_img)
     src_img = enhancer.enhance(2.0)
@@ -159,7 +176,8 @@ def test4():
     out = adaptive_cluster(src_img, sauce)
     print(time.time() - start)
 
-    myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity", "TopLeft"])
+    src_img = src_img.convert("RGB")
+    myTable = PrettyTable(["Position (y, x, h, w)", "Centroid (x, y)", "Answer", "Similarity"])
     tableRows = []
     for cluster, ans, sim, topleft in out:
         dy, dx = topleft
@@ -168,10 +186,10 @@ def test4():
         tableRows.append([
             (y+dy, x+dx, h, w), 
             (cx+dx, cy+dy), 
-            ans, sim, topleft
+            ans, sim
         ])
-        draw = ImageDraw.Draw(src_img)
-        draw.rectangle((x+dx, y+dy, x+dx+w, y+dy+h), None, 0 if sim >= 0.7 else 128)
+        draw = ImageDraw.Draw(src_img, "RGB")
+        draw.rectangle((x+dx-1, y+dy-1, x+dx+w+1, y+dy+h+1), None, (0,0,128) if sim >= 0.7 else (128,0,0))
     tableRows.sort(
         key = lambda row: row[1][0]
     )

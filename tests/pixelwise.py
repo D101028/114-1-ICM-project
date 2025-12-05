@@ -79,18 +79,18 @@ def dist_compare(img1: Image.Image, img2: Image.Image,
         img1 = _crop_img_obj(img1, bg)
         img2 = _crop_img_obj(img2, bg)
 
+    img1 = img1.convert("RGBA")
+    img2 = img2.convert("RGBA")
+
     # Resize target to source size
-    if img1.size < img2.size:
+    if img1.size[0] < img2.size[0]:
         img2 = img2.resize(img1.size)
-    elif img1.size > img2.size:
+    else:
         img1 = img1.resize(img2.size)
 
-    # Coerce both to the same mode (RGBA) and compute L2 on flattened arrays
-    a = img1.convert("RGBA")
-    b = img2.convert("RGBA")
-
-    arr1 = np.asarray(a, dtype=np.float32).ravel()
-    arr2 = np.asarray(b, dtype=np.float32).ravel()
+    # Compute L2 on flattened arrays
+    arr1 = np.asarray(img1, dtype=np.float32).ravel()
+    arr2 = np.asarray(img2, dtype=np.float32).ravel()
 
     l2_distance = np.linalg.norm(arr1 - arr2, ord=2)
     max_distance = np.sqrt(len(arr1)) * 255  # Maximum possible distance
