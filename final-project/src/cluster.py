@@ -7,7 +7,6 @@ from scipy.ndimage import label, center_of_mass
 class Component:
     """
     表示單一連通塊（connected component）。
-    - label_id: 原始 labeled index (from scipy.ndimage.label)
     - centroid: (cx, cy) in absolute image coordinates (ints)
     - bbox_xyxy: (x1, y1, x2, y2) absolute coordinates inclusive
     - bbox_yxhw: (y, x, h, w) relative format (方便使用)
@@ -291,7 +290,8 @@ class ClusterGroup:
 
     def resize(self, size: Tuple[int, int]) -> 'ClusterGroup':
         """
-        縮放整個 ClusterGroup 並回傳一個新的 ClusterGroup 實例。
+        縮放整個 ClusterGroup 並回傳一個新的 ClusterGroup 實例。\\
+        縮放後的 ClusterGroup 不保留 topleft 資訊。
         
         Args:
             size (Tuple[int, int]): 目標尺寸 (width, height)
