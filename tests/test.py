@@ -281,7 +281,7 @@ def adaptive_cluster(
             if (max_sim < accept_sim or h_sim < accept_h_sim) and depth < max_depth and len(cluster.components) > 1:
                 if str(h_sim) == "0.10932623560103483":
                     print(h_sim, best_f)
-                    if "leq" in best_f:
+                    if best_f is not None and "leq" in best_f:
                         cluster.to_L().save("out0.png")
                         sauce[best_f][0].save("out1.png")
                 rec_out.extend(recurse(tgt, depth + 1, topleft=next_topleft))
