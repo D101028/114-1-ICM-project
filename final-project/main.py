@@ -136,5 +136,5 @@ def test(case: str):
     print(myTable)
 
 if __name__ == "__main__":
-    test("01")
+    test("03")
 
