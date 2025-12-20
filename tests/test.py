@@ -5,6 +5,7 @@ import sys
 from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
 from typing import List, Tuple, Dict
+from scipy.spatial import KDTree
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
@@ -77,10 +78,107 @@ ABCDEFGHIJKLMNOPQRSTUVWXYZ
 AnsType = str | None
 SimType = float
 AdaptiveReturnType = List[Tuple[ClusterGroup, AnsType, SimType, Tuple[int, int]]]
-SauceType = Dict[AnsType, Tuple[Image.Image, float]]
+SauceType = Dict[AnsType, Tuple[Image.Image, float, ClusterGroup]]
+
+def chamfer_distance(A, B):
+    """
+    Computes the chamfer distance between two sets of points A and B.
+    """
+    tree = KDTree(B)
+    dist_A = tree.query(A)[0]
+    tree = KDTree(A)
+    dist_B = tree.query(B)[0]
+    return np.mean(dist_A) + np.mean(dist_B)
+
+def chamfer_ratio(cluster1: ClusterGroup, cluster2: ClusterGroup, topleft: Tuple[int, int]):
+    arr1 = np.empty((0, 2), dtype=int)
+    arr2 = np.empty((0, 2), dtype=int)
+
+    for comp in cluster1.components:
+        pts = comp.pixels_below_threshold(127)   # shape (K,2)
+        pts[:, 0] = pts[:, 0] - topleft[0]
+        pts[:, 1] = pts[:, 1] - topleft[1]
+        if pts.size == 0:
+            continue
+        arr1 = np.vstack([arr1, pts])
+
+    for comp in cluster2.components:
+        pts = comp.pixels_below_threshold(127)
+        if pts.size == 0:
+            continue
+        arr2 = np.vstack([arr2, pts])
+    chamfer_dist = chamfer_distance(arr1, arr2)
+    y, x, h, w = cluster1.get_bbox_yxhw()
+    ratio = chamfer_dist / (2 * ((w-1)**2+(h-1)**2)**0.5)
+
+
+    img1 = cluster1.to_L().convert("RGB")
+    for pt in arr1:
+        try:
+            img1.putpixel([pt[1], pt[0]], (0, 255, 0))
+        except:
+            pass 
+    
+    # import random
+    # img1.save(f"test_{random.randint(0, 1000)}.png")
+
+    return 1 - ratio
+
+def hausdorff_distance(A: np.ndarray, B: np.ndarray) -> float:
+    """
+    計算兩個點集 A, B 的 Hausdorff 距離
+    H(A, B) = max(h(A,B), h(B,A))
+    h(A,B) = max_{a in A} min_{b in B} ||a-b||_2
+    """
+    if A.size == 0 or B.size == 0:
+        raise ValueError("點集不能為空")
+
+    # 對每個 a in A，計算到 B 的最短距離
+    dists_A_to_B = np.min(np.linalg.norm(A[:, None, :] - B[None, :, :], axis=2), axis=1)
+    h_A_B = dists_A_to_B.max()
+
+    # 對每個 b in B，計算到 A 的最短距離
+    dists_B_to_A = np.min(np.linalg.norm(B[:, None, :] - A[None, :, :], axis=2), axis=1)
+    h_B_A = dists_B_to_A.max()
+
+    return max(h_A_B, h_B_A)
+
+def hausdorff_ratio(cluster1: ClusterGroup, cluster2: ClusterGroup, topleft: Tuple[int, int]):
+    arr1 = np.empty((0, 2), dtype=int)
+    arr2 = np.empty((0, 2), dtype=int)
+
+    for comp in cluster1.components:
+        pts = comp.get_soft_contour_points()   # shape (K,2)
+        pts[:, 0] = pts[:, 0] - topleft[0]
+        pts[:, 1] = pts[:, 1] - topleft[1]
+        if pts.size == 0:
+            continue
+        arr1 = np.vstack([arr1, pts])
+
+    for comp in cluster2.components:
+        pts = comp.get_soft_contour_points()
+        if pts.size == 0:
+            continue
+        arr2 = np.vstack([arr2, pts])
+    dist = hausdorff_distance(arr1, arr2)
+    y, x, h, w = cluster1.get_bbox_yxhw()
+    ratio = dist / (2 * ((w-1)**2+(h-1)**2)**0.5)
+
+
+    img1 = cluster1.to_L().convert("RGB")
+    for pt in arr1:
+        try:
+            img1.putpixel([pt[1], pt[0]], (0, 255, 0))
+        except:
+            pass 
+    
+    # import random
+    # img1.save(f"test_{random.randint(0, 1000)}.png")
+
+    return 1 - ratio
 
 def adaptive_cluster(
-        img: Image.Image, sauce: SauceType, accept_sim = 0.7, max_depth = 16
+        img: Image.Image, sauce: SauceType, accept_sim = 0.1, max_depth = 16
     ) -> AdaptiveReturnType:
 
     def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> AdaptiveReturnType:
@@ -122,32 +220,34 @@ def adaptive_cluster(
             ans = None
             max_sim = 0.0
             if r < 0.1:
-                for f, (src, yx_ratio) in sauce.items():
+                for f, (src, yx_ratio, cluster2) in sauce.items():
                     if yx_ratio > 0.125:
                         continue
-                    curr = dist_compare(src, tgt, (255,255,255))
+                    # curr = dist_compare(src, tgt, (255,255,255))
+                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
                     
                     if max_sim < curr:
                         ans = f
                         max_sim = curr
             elif r > 10:
-                for f, (src, yx_ratio) in sauce.items():
+                for f, (src, yx_ratio, cluster2) in sauce.items():
                     if yx_ratio < 8:
                         continue
 
-                    curr = dist_compare(src, tgt, (255,255,255))
+                    # curr = dist_compare(src, tgt, (255,255,255))
+                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
                     if max_sim < curr:
                         ans = f
                         max_sim = curr
             else:
-                for f, (src, yx_ratio) in sauce.items():
+                for f, (src, yx_ratio, cluster2) in sauce.items():
                     if yx_ratio > 10 or yx_ratio < 0.1:
                         continue
-                    curr = dist_compare(src, tgt, (255,255,255))
+                    # curr = dist_compare(src, tgt, (255,255,255))
+                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
                     if max_sim < curr:
                         ans = f
                         max_sim = curr
-            
             if max_sim < accept_sim and depth < max_depth and len(cluster.components) > 1:
                 rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
                 continue
@@ -164,7 +264,9 @@ def test4():
         for f in files:
             path = f"{root}/{f}"
             src = Image.open(path)
-            sauce[f] = (src, src.size[1] / src.size[0])
+            components, bbox_yxhw, gray_image = extract_components_from_pil(src)
+            cluster = ClusterGroup(components)
+            sauce[f] = (src, src.size[1] / src.size[0], cluster)
     
     src_img = Image.open(sys.argv[1])
     src_img = src_img.convert("L")
@@ -199,15 +301,23 @@ def test4():
     print(myTable)
 
 def test1():
+    img1 = Image.open("templates/2_14.png")
+    # img2 = Image.open("templates/3_92.png")
+    from PIL import ImageOps
+    img2 = ImageOps.invert(img1.convert("L"))
+    img2.save("test.png")
+    components1, _, _ = extract_components_from_pil(img1)
+    components2, _, _ = extract_components_from_pil(img2)
+
+    cluster1 = ClusterGroup(components1)
+    cluster2 = ClusterGroup(components2)
     
-    sauce: dict[AnsType, Image.Image] = {}
-    for root, dirs, files in os.walk("./templates"):
-        for f in files:
-            path = f"{root}/{f}"
-            src = Image.open(path)
-            sauce[f] = src
-    for f, src in sauce.items():
-        print(f, src.size[1] / src.size[0])
+    ratio = chamfer_ratio(cluster1, cluster2, (0, 0))
+    
+    print(ratio)
+
+    ratio0 = chamfer_ratio(cluster1, cluster1, (0, 0))
+    print(ratio0)
     
 
 if __name__ == "__main__":

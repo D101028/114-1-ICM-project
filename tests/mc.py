@@ -75,6 +75,77 @@ class Component:
     def get_bbox_xyxy(self) -> Tuple[int,int,int,int]:
         return self.bbox_xyxy
 
+    def get_soft_contour_points(self, thresh: int = 127) -> np.ndarray:
+        """
+        使用灰階深淺變化抓更“鬆”的輪廓。
+        若 pixel 與任一 4-neighbor 的灰階差 > thresh，就視為輪廓。
+        
+        邊界以外視為 255，允許座標為負。
+        
+        回傳：絕對座標 (y, x) 的 ndarray (K, 2)
+        """
+
+        mask = self.mask
+        pixels = self.pixels
+
+        if mask.size == 0:
+            return np.zeros((0, 2), dtype=int)
+
+        h, w = mask.shape
+        ys, xs = np.where(mask)
+
+        contour = []
+        y0, x0, _, _ = self.bbox_yxhw
+
+        for y, x in zip(ys, xs):
+            p = pixels[y, x]
+
+            neighbors = []
+
+            # 上
+            if y > 0:
+                neighbors.append(pixels[y-1, x])
+            else:
+                neighbors.append(255)  # 上界外
+            # 下
+            if y < h - 1:
+                neighbors.append(pixels[y+1, x])
+            else:
+                neighbors.append(255)  # 下界外
+            # 左
+            if x > 0:
+                neighbors.append(pixels[y, x-1])
+            else:
+                neighbors.append(255)  # 左界外
+            # 右
+            if x < w - 1:
+                neighbors.append(pixels[y, x+1])
+            else:
+                neighbors.append(255)  # 右界外
+
+            # 若與任一鄰居亮度差 > threshold，即視為輪廓
+            if any(abs(int(p) - int(nb)) > thresh for nb in neighbors):
+                contour.append((y + y0, x + x0))
+
+        return np.array(contour, dtype=int)
+
+    def pixels_below_threshold(self, thres: int) -> np.ndarray:
+        """
+        回傳所有灰階值大於 thres 的像素在絕對座標下的 ndarray (N, 2)。
+        座標格式為 (y, x)。
+        """
+        # mask 大於閾值的相對座標
+        rel_mask = self.pixels < thres
+        if not rel_mask.any():
+            return np.zeros((0,2), dtype=int)
+        
+        rel_coords = np.argwhere(rel_mask)  # relative coords within crop
+        # 轉換成絕對座標
+        y0, x0, _, _ = self.bbox_yxhw
+        abs_coords = rel_coords + np.array([y0, x0])
+        return abs_coords
+
+
 class ClusterGroup:
     """
     代表一個 cluster，由多個 Component 組成。
