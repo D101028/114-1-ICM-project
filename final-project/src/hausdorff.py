@@ -21,7 +21,7 @@ def hausdorff_distance(A: np.ndarray, B: np.ndarray) -> float:
     
     return max(h_A_B, h_B_A)
 
-def hausdorff_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup, topleft: Tuple[int, int]) -> float:
+def hausdorff_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup) -> float:
     """
     計算兩個 ClusterGroup 的 hausdorff 相似度。
     
@@ -29,31 +29,15 @@ def hausdorff_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup, topl
     :type base_cluster: ClusterGroup
     :param cluster: 欲比較之 cluster，先縮放到與 base_cluster 相同 size 再比較
     :type cluster: ClusterGroup
-    :param topleft: 校準 cluster components 用
-    :type topleft: Tuple[int, int]
     :return: [0, 1] 區間的值
     :rtype: float
     """
     # resize 
-    _, _, h, w = base_cluster.get_bbox_yxhw()
+    h, w = base_cluster.get_bbox_hw()
     cluster = cluster.resize((w, h))
 
-    arr1 = np.empty((0, 2), dtype=int)
-    arr2 = np.empty((0, 2), dtype=int)
-
-    for comp in base_cluster.components:
-        pts = comp.get_soft_contour_points()   # shape (K,2)
-        if pts.size == 0:
-            continue
-        arr1 = np.vstack([arr1, pts])
-
-    for comp in cluster.components:
-        pts = comp.get_soft_contour_points()
-        pts[:, 0] = pts[:, 0] - topleft[0]
-        pts[:, 1] = pts[:, 1] - topleft[1]
-        if pts.size == 0:
-            continue
-        arr2 = np.vstack([arr2, pts])
+    arr1 = base_cluster.get_soft_contour_arr()
+    arr2 = cluster.get_soft_contour_arr()
 
     if arr1.size == 0 or arr2.size == 0:
         return 0.0 # 若為空，返回 0 相似

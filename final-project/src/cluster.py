@@ -1,6 +1,6 @@
-import numpy as np
 from typing import List, Tuple
 
+import numpy as np
 from PIL import Image
 from scipy.ndimage import label, center_of_mass
 
@@ -17,14 +17,14 @@ class Component:
     - coords: list/array of (y, x) pixel coords in absolute image coordinates
     """
     def __init__(self,
-                 label_id: int,
                  centroid: Tuple[float, float],
                  coords: np.ndarray,
                  full_gray_image: np.ndarray):
-        self.label_id = label_id
         # center_of_mass gives (cy, cx)
         cy_f, cx_f = centroid
         self.centroid = (int(round(cx_f)), int(round(cy_f)))  # (cx, cy) as ints
+
+        self.full_gray_image = full_gray_image
 
         # coords is Nx2 array of (y, x)
         self.coords = np.asarray(coords, dtype=int)
@@ -65,6 +65,8 @@ class Component:
         # store centroid as floats too if needed
         self.centroid_float = (cx_f, cy_f)
 
+        self.soft_contour_points: np.ndarray | None = None
+
     def get_centroid(self) -> Tuple[int,int]:
         return self.centroid
 
@@ -73,6 +75,14 @@ class Component:
 
     def get_bbox_xyxy(self) -> Tuple[int,int,int,int]:
         return self.bbox_xyxy
+
+    def copy(self) -> "Component":
+        return Component(self.centroid, self.coords, self.full_gray_image)
+
+    def move(self, dy: int, dx: int):
+        self.centroid = (self.centroid[0] + dx, self.centroid[1] + dy)
+        self.bbox_xyxy = (self.bbox_xyxy[0] + dx, self.bbox_xyxy[1] + dy, self.bbox_xyxy[2] + dx, self.bbox_xyxy[3] + dy)
+        self.bbox_yxhw = (self.bbox_yxhw[0] + dy, self.bbox_yxhw[1] + dx, self.bbox_yxhw[2], self.bbox_yxhw[3])
 
     def get_soft_contour_points(self, thresh: int = 127) -> np.ndarray:
         """
@@ -83,6 +93,8 @@ class Component:
         
         回傳：絕對座標 (y, x) 的 ndarray (K, 2)
         """
+        if self.soft_contour_points is not None:
+            return self.soft_contour_points
 
         mask = self.mask
         pixels = self.pixels
@@ -126,7 +138,9 @@ class Component:
             if any(abs(int(p) - int(nb)) > thresh for nb in neighbors):
                 contour.append((y + y0, x + x0))
 
-        return np.array(contour, dtype=int)
+        self.soft_contour_points = np.array(contour, dtype=int)
+
+        return self.soft_contour_points
 
     def pixels_below_threshold(self, thres: int) -> np.ndarray:
         """
@@ -155,11 +169,15 @@ class ClusterGroup:
     - centroid: weighted centroid (by area), integer (cx,cy)
     - mask_on_full: optional combined mask in full image coordinates (bool array) — 建立時可選擇開啟
     """
-    def __init__(self, components: List[Component], build_full_mask: bool=False, full_shape: Tuple[int,int] | None=None):
-        self.components = list(components)
+    def __init__(
+        self, components: List[Component], 
+        build_full_mask: bool=False, 
+        full_shape: Tuple[int,int] | None=None, 
+        topleft: Tuple[int,int]=(0, 0)
+    ):
+        self.components = [c.copy() for c in components]
         if len(self.components) == 0:
-            self.bbox_xyxy = (0,0,-1,-1)
-            self.bbox_yxhw = (0,0,0,0)
+            self.bbox_hw = (0,0)
             self.area = 0
             self.centroid = (0,0)
             self.mask_on_full = None
@@ -173,10 +191,14 @@ class ClusterGroup:
 
         X1, Y1 = min(x1s), min(y1s)
         X2, Y2 = max(x2s), max(y2s)
-        self.bbox_xyxy = (X1, Y1, X2, Y2)
         h = Y2 - Y1 + 1
         w = X2 - X1 + 1
-        self.bbox_yxhw = (Y1, X1, h, w)
+        self.bbox_hw = (h, w)
+        self.topleft = (topleft[0] + Y1, topleft[1] + X1)
+        
+        # correct the location of components
+        for c in self.components:
+            c.move(-Y1, -X1)
 
         # area & weighted centroid
         areas = np.array([c.area for c in self.components], dtype=float)
@@ -204,16 +226,21 @@ class ClusterGroup:
                 y1, x1, h, w = c.get_bbox_yxhw()
                 mask[y1:y1+h, x1:x1+w] |= c.mask
             self.mask_on_full = mask
+        
+        self.l_img: Image.Image | None = None
+        self.soft_contour_arr: np.ndarray | None = None
+        self.pixels_below_threshold_arr: np.ndarray | None = None
 
     def to_L(self) -> Image.Image:
-        y1, x1, h, w = self.get_bbox_yxhw()
+        if self.l_img is not None:
+            return self.l_img
+
+        h, w = self.get_bbox_hw()
         # create a plain grayscale canvas (no alpha)
         canvas = Image.new("L", (w, h), 255)
 
         for comp in self.components:
             cy1, cx1, ch, cw = comp.get_bbox_yxhw()
-            rel_y1 = cy1 - y1
-            rel_x1 = cx1 - x1
 
             mask = comp.mask
             pix = comp.pixels  # grayscale array (h,w)
@@ -223,16 +250,44 @@ class ClusterGroup:
             # mask to control where to paste (still single-channel, no alpha in result)
             mask_img = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
 
-            canvas.paste(comp_img, (rel_x1, rel_y1), mask_img)
+            canvas.paste(comp_img, (cx1, cy1), mask_img)
+        
+        self.l_img = canvas
 
         return canvas
 
-    def get_bbox_yxhw(self) -> Tuple[int,int,int,int]:
-        return self.bbox_yxhw
+    def get_bbox_hw(self) -> Tuple[int,int]:
+        return self.bbox_hw
 
     def get_centroid(self) -> Tuple[int,int]:
         """Return centroid in (x, y)"""
         return self.centroid
+
+    def get_soft_contour_arr(self) -> np.ndarray:
+        if self.soft_contour_arr is not None:
+            return self.soft_contour_arr
+        arr = np.empty((0, 2), dtype=int)
+        for comp in self.components:
+            pts = comp.get_soft_contour_points()   # shape (K,2)
+            if pts.size == 0:
+                continue
+            arr = np.vstack([arr, pts])
+        self.soft_contour_arr = arr
+        return arr
+    
+    def get_pixels_below_threshold(self, threshold=127) -> np.ndarray:
+        if self.pixels_below_threshold_arr is not None:
+            return self.pixels_below_threshold_arr
+        
+        arr = np.empty((0, 2), dtype=int)
+        for comp in self.components:
+            pts = comp.pixels_below_threshold(127)
+            if pts.size == 0:
+                continue
+            arr = np.vstack([arr, pts])
+        self.pixels_below_threshold_arr = arr
+        
+        return arr
 
     def resize(self, size: Tuple[int, int]) -> 'ClusterGroup':
         """
@@ -244,7 +299,7 @@ class ClusterGroup:
             ClusterGroup: 縮放後的新 ClusterGroup 物件
         """
         target_w, target_h = size
-        orig_y1, orig_x1, orig_h, orig_w = self.bbox_yxhw
+        orig_h, orig_w = self.get_bbox_hw()
         
         if orig_w == 0 or orig_h == 0:
             return ClusterGroup([])
@@ -258,15 +313,12 @@ class ClusterGroup:
         for comp in self.components:
             # 計算該組件在縮放後的新尺寸
             c_y1, c_x1, c_h, c_w = comp.bbox_yxhw
-            # 相對於 Cluster 左上角的位移
-            rel_x = c_x1 - orig_x1
-            rel_y = c_y1 - orig_y1
             
             # 縮放後的尺寸與位置
             new_cw = max(1, int(round(c_w * scale_x)))
             new_ch = max(1, int(round(c_h * scale_y)))
-            new_cx1 = int(round(rel_x * scale_x))
-            new_cy1 = int(round(rel_y * scale_y))
+            new_cx1 = int(round(c_x1 * scale_x))
+            new_cy1 = int(round(c_y1 * scale_y))
 
             # 2. 縮放 Pixels 與 Mask
             # 使用 PIL 進行影像處理
@@ -293,7 +345,6 @@ class ClusterGroup:
             new_centroid = (comp.centroid_float[0] * scale_x, comp.centroid_float[1] * scale_y)
             
             new_comp = Component(
-                label_id=comp.label_id,
                 centroid=new_centroid,
                 coords=new_coords,
                 full_gray_image=fake_full_gray
@@ -352,7 +403,8 @@ def hierarchical_cluster(
     refine_ratio=0.5,
     max_depth=12, 
     build_cluster_masks: bool=False,
-    image_shape: Tuple[int,int] | None=None
+    image_shape: Tuple[int,int] | None=None, 
+    topleft: Tuple[int, int]=(0, 0)
 ) -> List[ClusterGroup]:
     """
     分層式 clustering。對 components 的 centroids 組成做 cluster。
@@ -402,7 +454,7 @@ def hierarchical_cluster(
     clusters: List[ClusterGroup] = []
     for idx_list in partitioned_index_lists:
         comps = [components[i] for i in idx_list]
-        cluster = ClusterGroup(comps, build_full_mask=build_cluster_masks, full_shape=image_shape)
+        cluster = ClusterGroup(comps, build_full_mask=build_cluster_masks, full_shape=image_shape, topleft=topleft)
         clusters.append(cluster)
 
     return clusters
@@ -448,7 +500,7 @@ def extract_components_from_pil(
             continue
         # centroid
         cy, cx = center_of_mass(binary, labels=labeled, index=i)
-        comp = Component(label_id=i, centroid=(cy, cx), coords=coords, full_gray_image=gray) # type: ignore
+        comp = Component(centroid=(cy, cx), coords=coords, full_gray_image=gray) # type: ignore
         components.append(comp)
 
     return components, bbox_yxhw, gray

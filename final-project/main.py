@@ -5,23 +5,23 @@ from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
 
 from src.cluster import ClusterGroup, extract_components_from_pil, hierarchical_cluster
-from src.chamfer import chamfer_ratio
+from src.chamfer import chamfer_similarity
 from src.hausdorff import hausdorff_similarity
 from src.l2dist import l2_similarity
 from src.template import TexMacro, load_tex_macros
 
 class AdaptiveReturnSet:
-    def __init__(self, cluster, best_macro, max_sim, second_sim, topleft, depth) -> None:
+    def __init__(self, cluster, best_macro, max_sim, second_sim, depth) -> None:
         self.cluster = cluster
         self.best_macro = best_macro
         self.max_sim = max_sim
         self.second_sim = second_sim
-        self.topleft = topleft
         self.depth = depth
 
 def adaptive_cluster(
     img: Image.Image, sauce: List[TexMacro], 
-    second_sim_func: Callable[[ClusterGroup, ClusterGroup, Tuple[int, int]], float] = lambda _, __, ___: 1.0, 
+    sim_func: Callable[[ClusterGroup, ClusterGroup], float] = l2_similarity, 
+    second_sim_func: Callable[[ClusterGroup, ClusterGroup], float] = lambda _, __: 1.0, 
     accept_sim = 0.7, second_accept_sim = 0.9, max_depth = 16
 ) -> List[AdaptiveReturnSet]:
 
@@ -36,7 +36,8 @@ def adaptive_cluster(
             wx=wx, wy=wy,
             refine_min_size=4, refine_ratio=0.5,
             build_cluster_masks=False,
-            image_shape=gray.shape
+            image_shape=gray.shape, 
+            topleft=topleft
         )
 
         # 2. 特殊情況：如果分不開且還有深度，增加權重重試
@@ -45,8 +46,8 @@ def adaptive_cluster(
         
         rec_out: List[AdaptiveReturnSet] = []
         for cluster in clusters:
-            y, x, h, w = cluster.get_bbox_yxhw()
-            next_topleft = (topleft[0] + y, topleft[1] + x)
+            h, w = cluster.get_bbox_hw()
+            next_topleft = cluster.topleft
             r = h / w
             tgt = cluster.to_L()
 
@@ -68,11 +69,11 @@ def adaptive_cluster(
                 )
                 if not is_compatible: continue
 
-                l2_sim = l2_similarity(tex_macro.image, tgt)
+                l2_sim = sim_func(tex_macro.cluster, cluster)
                 
                 if l2_sim > max_sim:
                     max_sim = l2_sim
-                    second_sim = second_sim_func(tex_macro.cluster, cluster, topleft)
+                    second_sim = second_sim_func(tex_macro.cluster, cluster)
                     best_macro = tex_macro
 
             # 5. 判定與輸出
@@ -83,7 +84,7 @@ def adaptive_cluster(
                 if max_sim < accept_sim and best_macro is not None:
                     print(f"Doubted: {best_macro.macro} (Sim: {max_sim:.3f})")
                 rec_out.append(
-                    AdaptiveReturnSet(cluster, best_macro, max_sim, second_sim, topleft, depth)
+                    AdaptiveReturnSet(cluster, best_macro, max_sim, second_sim, depth)
                 )
                 
         return rec_out
@@ -104,7 +105,10 @@ def test(case: str):
     import time 
     start = time.time()
     out = adaptive_cluster(
-        src_img, sauce, hausdorff_similarity, accept_sim=0.65, second_accept_sim = 0.9
+        src_img, sauce, 
+        sim_func=l2_similarity, 
+        second_sim_func=hausdorff_similarity, 
+        accept_sim=0.6, second_accept_sim=0.9
     )
     print(time.time() - start)
 
@@ -115,19 +119,20 @@ def test(case: str):
     )
     tableRows = []
     for result in out:
-        dy, dx = result.topleft
-        y, x, h, w = result.cluster.get_bbox_yxhw()
+        y, x = result.cluster.topleft
+        h, w = result.cluster.get_bbox_hw()
         cx, cy = result.cluster.get_centroid()
         tableRows.append([
-            (y+dy, x+dx, h, w), 
-            (cx+dx, cy+dy), 
+            (y, x, h, w), 
+            (cx+x, cy+y), 
             result.best_macro.macro, 
             result.max_sim, 
             result.second_sim, 
             result.depth
         ])
         draw = ImageDraw.Draw(src_img, "RGB")
-        draw.rectangle((x+dx-1, y+dy-1, x+dx+w+1, y+dy+h+1), None, (0,0,128) if result.max_sim >= 0.7 else (128,0,0))
+        draw.rectangle((x-1, y-1, x+w+1, y+h+1), None, (0,0,128) if result.max_sim >= 0.7 else (128,0,0))
+
     tableRows.sort(
         key = lambda row: row[1][0]
     )
@@ -138,4 +143,15 @@ def test(case: str):
 
 if __name__ == "__main__":
     test("01")
+    # img = Image.open("tmp.png")
+    # comp, _, _ = extract_components_from_pil(img)
+    # cluster = ClusterGroup(comp)
+
+    # src = Image.open("templates/%5Cint_e06a3bfdbb.png")
+    # comp, _, _ = extract_components_from_pil(src)
+    # base = ClusterGroup(comp)
+
+    # print(l2_similarity(base, cluster))
+    # print(chamfer_similarity(base, cluster))
+    # print(l2_similarity(base, cluster))
 

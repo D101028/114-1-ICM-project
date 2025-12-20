@@ -14,27 +14,13 @@ def chamfer_distance(A, B):
     dist_B = tree.query(B)[0]
     return np.mean(dist_A) + np.mean(dist_B)
 
-def chamfer_ratio(base_cluster: ClusterGroup, cluster: ClusterGroup, topleft: Tuple[int, int]):
+def chamfer_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup):
     # resize 
-    _, _, h, w = base_cluster.get_bbox_yxhw()
+    h, w = base_cluster.get_bbox_hw()
     cluster = cluster.resize((w, h))
 
-    arr1 = np.empty((0, 2), dtype=int)
-    arr2 = np.empty((0, 2), dtype=int)
-
-    for comp in base_cluster.components:
-        pts = comp.pixels_below_threshold(127)   # shape (K,2)
-        if pts.size == 0:
-            continue
-        arr1 = np.vstack([arr1, pts])
-
-    for comp in cluster.components:
-        pts = comp.pixels_below_threshold(127)
-        pts[:, 0] = pts[:, 0] - topleft[0]
-        pts[:, 1] = pts[:, 1] - topleft[1]
-        if pts.size == 0:
-            continue
-        arr2 = np.vstack([arr2, pts])
+    arr1 = base_cluster.get_pixels_below_threshold()
+    arr2 = cluster.get_pixels_below_threshold()
 
     # 1. 處理空集合的情況 (避免 KDTree crash 或除以零)
     if arr1.size == 0 or arr2.size == 0:
