@@ -6,6 +6,7 @@ from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
 from typing import List, Tuple, Dict
 from scipy.spatial import KDTree
+from scipy.spatial.distance import cdist
 
 from macrotopng import latex_symbol_to_png
 from mc import level_mark_components_and_clusters_pil as lmccp2
@@ -90,121 +91,157 @@ def chamfer_distance(A, B):
     dist_B = tree.query(B)[0]
     return np.mean(dist_A) + np.mean(dist_B)
 
-def chamfer_ratio(cluster1: ClusterGroup, cluster2: ClusterGroup, topleft: Tuple[int, int]):
+def chamfer_ratio(base_cluster: ClusterGroup, cluster: ClusterGroup, topleft: Tuple[int, int]):
+    # resize 
+    _, _, h, w = base_cluster.get_bbox_yxhw()
+    cluster = cluster.resize((w, h))
+
     arr1 = np.empty((0, 2), dtype=int)
     arr2 = np.empty((0, 2), dtype=int)
 
-    for comp in cluster1.components:
+    for comp in base_cluster.components:
         pts = comp.pixels_below_threshold(127)   # shape (K,2)
-        pts[:, 0] = pts[:, 0] - topleft[0]
-        pts[:, 1] = pts[:, 1] - topleft[1]
         if pts.size == 0:
             continue
         arr1 = np.vstack([arr1, pts])
 
-    for comp in cluster2.components:
+    for comp in cluster.components:
         pts = comp.pixels_below_threshold(127)
+        pts[:, 0] = pts[:, 0] - topleft[0]
+        pts[:, 1] = pts[:, 1] - topleft[1]
         if pts.size == 0:
             continue
         arr2 = np.vstack([arr2, pts])
-    chamfer_dist = chamfer_distance(arr1, arr2)
-    y, x, h, w = cluster1.get_bbox_yxhw()
-    ratio = chamfer_dist / (2 * ((w-1)**2+(h-1)**2)**0.5)
 
+    # 1. 處理空集合的情況 (避免 KDTree crash 或除以零)
+    if arr1.size == 0 or arr2.size == 0:
+        return 0.0 # 若一方為空，相似度為 0
 
-    img1 = cluster1.to_L().convert("RGB")
-    for pt in arr1:
-        try:
-            img1.putpixel([pt[1], pt[0]], (0, 255, 0))
-        except:
-            pass 
+    # 2. 計算 Chamfer Distance
+    c_dist = chamfer_distance(arr1, arr2)
+
+    # 3. 計算標準化基準 (對角線 D)
+    # 建議使用兩者聯集的範圍，避免 ratio 變成負數 (因為 1 - ratio)
+    all_pts = np.vstack([arr1, arr2])
+    min_pt = all_pts.min(axis=0)
+    max_pt = all_pts.max(axis=0)
+    w_union = max_pt[1] - min_pt[1]
+    h_union = max_pt[0] - min_pt[0]
     
-    # import random
-    # img1.save(f"test_{random.randint(0, 1000)}.png")
+    diagonal = (w_union**2 + h_union**2)**0.5
+    
+    if diagonal == 0:
+        return 1.0 if c_dist == 0 else 0.0
 
-    return 1 - ratio
+    # 4. 標準化
+    # 因為 chamfer_distance 回傳的是兩個 mean 的「和」
+    # 所以最大值趨近於 2 * diagonal
+    normalized_dist = c_dist / (2 * diagonal)
+    
+    # 限制在 [0, 1] 之間，防止浮點數運算誤差
+    normalized_dist = min(1.0, normalized_dist)
+
+    return 1 - normalized_dist
 
 def hausdorff_distance(A: np.ndarray, B: np.ndarray) -> float:
-    """
-    計算兩個點集 A, B 的 Hausdorff 距離
-    H(A, B) = max(h(A,B), h(B,A))
-    h(A,B) = max_{a in A} min_{b in B} ||a-b||_2
-    """
+    # A, B shape: (N, 2), (M, 2)
     if A.size == 0 or B.size == 0:
-        raise ValueError("點集不能為空")
+        return np.inf # 回傳最大值
 
-    # 對每個 a in A，計算到 B 的最短距離
-    dists_A_to_B = np.min(np.linalg.norm(A[:, None, :] - B[None, :, :], axis=2), axis=1)
-    h_A_B = dists_A_to_B.max()
-
-    # 對每個 b in B，計算到 A 的最短距離
-    dists_B_to_A = np.min(np.linalg.norm(B[:, None, :] - A[None, :, :], axis=2), axis=1)
-    h_B_A = dists_B_to_A.max()
-
+    # 使用 cdist 計算成對距離矩陣 (N, M)
+    dists = cdist(A, B, metric='euclidean')
+    
+    # Directed distances
+    h_A_B = np.max(np.min(dists, axis=1))
+    h_B_A = np.max(np.min(dists, axis=0))
+    
     return max(h_A_B, h_B_A)
 
-def hausdorff_ratio(cluster1: ClusterGroup, cluster2: ClusterGroup, topleft: Tuple[int, int]):
+def hausdorff_ratio(base_cluster: ClusterGroup, cluster: ClusterGroup, topleft: Tuple[int, int]) -> float:
+    """
+    計算兩個 ClusterGroup 的 hausdorff 相似度。
+    
+    :param base_cluster: templates cluster
+    :type base_cluster: ClusterGroup
+    :param cluster: 欲比較之 cluster，先縮放到與 base_cluster 相同 size 再比較
+    :type cluster: ClusterGroup
+    :param topleft: 校準 cluster components 用
+    :type topleft: Tuple[int, int]
+    :return: [0, 1] 區間的值
+    :rtype: float
+    """
+    # resize 
+    _, _, h, w = base_cluster.get_bbox_yxhw()
+    cluster = cluster.resize((w, h))
+
     arr1 = np.empty((0, 2), dtype=int)
     arr2 = np.empty((0, 2), dtype=int)
 
-    for comp in cluster1.components:
+    for comp in base_cluster.components:
         pts = comp.get_soft_contour_points()   # shape (K,2)
-        pts[:, 0] = pts[:, 0] - topleft[0]
-        pts[:, 1] = pts[:, 1] - topleft[1]
         if pts.size == 0:
             continue
         arr1 = np.vstack([arr1, pts])
 
-    for comp in cluster2.components:
+    for comp in cluster.components:
         pts = comp.get_soft_contour_points()
+        pts[:, 0] = pts[:, 0] - topleft[0]
+        pts[:, 1] = pts[:, 1] - topleft[1]
         if pts.size == 0:
             continue
         arr2 = np.vstack([arr2, pts])
+
+    if arr1.size == 0 or arr2.size == 0:
+        return 0.0 # 若為空，返回 0 相似
+
     dist = hausdorff_distance(arr1, arr2)
-    y, x, h, w = cluster1.get_bbox_yxhw()
-    ratio = dist / (2 * ((w-1)**2+(h-1)**2)**0.5)
-
-
-    img1 = cluster1.to_L().convert("RGB")
-    for pt in arr1:
-        try:
-            img1.putpixel([pt[1], pt[0]], (0, 255, 0))
-        except:
-            pass 
     
-    # import random
-    # img1.save(f"test_{random.randint(0, 1000)}.png")
-
+    # 方案 A：使用兩者聯集的對角線進行標準化 (最推薦，確保 ratio <= 1)
+    all_pts = np.vstack([arr1, arr2])
+    min_coords = all_pts.min(axis=0)
+    max_coords = all_pts.max(axis=0)
+    diff = max_coords - min_coords
+    diagonal = np.sqrt(np.sum(diff**2))
+    
+    # 避免除以零
+    if diagonal == 0:
+        return 0.0 if dist == 0 else 1.0
+        
+    ratio = dist / diagonal
     return 1 - ratio
 
+def l2_ratio(cluster1: ClusterGroup, cluster2: ClusterGroup, topleft):
+    img1 = cluster1.to_L()
+    img2 = cluster2.to_L()
+
+    arr1 = np.asarray(img1, dtype=np.float32).ravel()
+    arr2 = np.asarray(img2, dtype=np.float32).ravel()
+
+    l2_distance = np.linalg.norm(arr1 - arr2, ord=2)
+    max_distance = np.sqrt(len(arr1)) * 255  # Maximum possible distance
+
+    similarity = 1 - (l2_distance / max_distance)
+    return float(np.clip(similarity, 0, 1)) # ensure the value is in [0, 1]
+
 def adaptive_cluster(
-        img: Image.Image, sauce: SauceType, accept_sim = 0.1, max_depth = 16
-    ) -> AdaptiveReturnType:
+    img: Image.Image, sauce: SauceType, accept_sim = 0.7, accept_h_sim = 0.9, max_depth = 16
+) -> AdaptiveReturnType:
 
     def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> AdaptiveReturnType:
-        wx = 2 + 0.1 * fix_ratio_x
-        wy = 0.1 + 0.1 * fix_ratio_y
-        refine_min_size = 4
-        refine_ratio = 0.5
-
-        # extract components
+        # 1. 初始化參數與分群
+        wx, wy = 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y
         components, bbox_yxhw, gray = extract_components_from_pil(img)
-
-        # threshold 
-        base_threshold = bbox_yxhw[2] * 0.4
-
-        # clustering
+        
         clusters = hierarchical_cluster(
             components,
-            base_threshold=base_threshold,
-            wx=wx,
-            wy=wy,
-            refine_min_size=refine_min_size,
-            refine_ratio=refine_ratio,
+            base_threshold=bbox_yxhw[2] * 0.4,
+            wx=wx, wy=wy,
+            refine_min_size=4, refine_ratio=0.5,
             build_cluster_masks=False,
-            image_shape=gray.shape # type: ignore
+            image_shape=gray.shape
         )
 
+        # 2. 特殊情況：如果分不開且還有深度，增加權重重試
         if len(clusters) == 1 and len(clusters[0].components) > 1 and depth < max_depth:
             return recurse(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2, topleft)
         
@@ -214,46 +251,45 @@ def adaptive_cluster(
             next_topleft = (topleft[0] + y, topleft[1] + x)
             r = h / w
             tgt = cluster.to_L()
-            if len(cluster.components) > 4 and depth < max_depth:
-                rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
-                continue
-            ans = None
-            max_sim = 0.0
-            if r < 0.1:
-                for f, (src, yx_ratio, cluster2) in sauce.items():
-                    if yx_ratio > 0.125:
-                        continue
-                    # curr = dist_compare(src, tgt, (255,255,255))
-                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
-                    
-                    if max_sim < curr:
-                        ans = f
-                        max_sim = curr
-            elif r > 10:
-                for f, (src, yx_ratio, cluster2) in sauce.items():
-                    if yx_ratio < 8:
-                        continue
 
-                    # curr = dist_compare(src, tgt, (255,255,255))
-                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
-                    if max_sim < curr:
-                        ans = f
-                        max_sim = curr
-            else:
-                for f, (src, yx_ratio, cluster2) in sauce.items():
-                    if yx_ratio > 10 or yx_ratio < 0.1:
-                        continue
-                    # curr = dist_compare(src, tgt, (255,255,255))
-                    curr = hausdorff_ratio(cluster, cluster2, next_topleft)
-                    if max_sim < curr:
-                        ans = f
-                        max_sim = curr
-            if max_sim < accept_sim and depth < max_depth and len(cluster.components) > 1:
-                rec_out.extend(recurse(tgt, depth+1, topleft=next_topleft))
+            # 3. 遞迴深挖：如果組件過多，強制進入下一層
+            if len(cluster.components) > 4 and depth < max_depth:
+                rec_out.extend(recurse(tgt, depth + 1, topleft=next_topleft))
                 continue
-            if max_sim < accept_sim and ans is not None:
-                print("doubted ans: ", ans, max_sim)
-            rec_out.append((cluster, ans, max_sim, topleft))
+
+            # 4. 統一比對邏輯
+            best_f, max_sim, h_sim = None, 0.0, 0.0
+            
+            for f, (src, yx_ratio, base_cluster) in sauce.items():
+                # 比率篩選邏輯
+                is_compatible = (
+                    (r < 0.1 and yx_ratio <= 0.125) or
+                    (r > 10 and yx_ratio >= 8) or
+                    (0.1 <= r <= 10 and 0.1 <= yx_ratio <= 10)
+                )
+                if not is_compatible: continue
+
+                l2_sim = dist_compare(src, tgt, (255, 255, 255))
+                
+                if l2_sim > max_sim:
+                    max_sim = l2_sim
+                    h_sim = hausdorff_ratio(base_cluster, cluster, topleft)
+                    best_f = f
+
+            # 5. 判定與輸出
+            # 如果相似度不足且還有組件，嘗試進一步拆解
+            if (max_sim < accept_sim or h_sim < accept_h_sim) and depth < max_depth and len(cluster.components) > 1:
+                if str(h_sim) == "0.10932623560103483":
+                    print(h_sim, best_f)
+                    if "leq" in best_f:
+                        cluster.to_L().save("out0.png")
+                        sauce[best_f][0].save("out1.png")
+                rec_out.extend(recurse(tgt, depth + 1, topleft=next_topleft))
+            else:
+                if max_sim < accept_sim and best_f is not None:
+                    print(f"Doubted: {best_f} (Sim: {max_sim:.3f})")
+                rec_out.append((cluster, best_f, max_sim, topleft))
+                
         return rec_out
     
     return recurse(img)
@@ -301,23 +337,46 @@ def test4():
     print(myTable)
 
 def test1():
-    img1 = Image.open("templates/2_14.png")
-    # img2 = Image.open("templates/3_92.png")
-    from PIL import ImageOps
-    img2 = ImageOps.invert(img1.convert("L"))
-    img2.save("test.png")
-    components1, _, _ = extract_components_from_pil(img1)
-    components2, _, _ = extract_components_from_pil(img2)
+    img0 = Image.open("a1_resized.png")
+    img1 = Image.open("a1.png")
+    img2 = Image.open("a2.png")
+    img3 = Image.open("a3.png")
+    comp0, _, _ = extract_components_from_pil(img0)
+    comp1, _, _ = extract_components_from_pil(img1)
+    comp2, _, _ = extract_components_from_pil(img2)
+    comp3, _, _ = extract_components_from_pil(img3)
 
-    cluster1 = ClusterGroup(components1)
-    cluster2 = ClusterGroup(components2)
+    cluster0 = ClusterGroup(comp0)
+    _, _, h, w = cluster0.get_bbox_yxhw()
+    cluster1 = ClusterGroup(comp1).resize((w, h))
+    cluster2 = ClusterGroup(comp2).resize((w, h))
+    cluster3 = ClusterGroup(comp3).resize((w, h))
     
-    ratio = chamfer_ratio(cluster1, cluster2, (0, 0))
+    ratio0 = chamfer_ratio(cluster1, cluster0, (0, 0))
+    ratio1 = chamfer_ratio(cluster1, cluster1, (0, 0))
+    ratio2 = chamfer_ratio(cluster1, cluster2, (0, 0))
+    ratio3 = chamfer_ratio(cluster1, cluster3, (0, 0))
     
-    print(ratio)
+    print(ratio0, ratio1, ratio2, ratio3)
 
-    ratio0 = chamfer_ratio(cluster1, cluster1, (0, 0))
-    print(ratio0)
+def test2():
+    img1 = Image.open("out0.png")
+    img2 = Image.open("out1.png")
+    temp = Image.open("templates/bs_leq_79.png")
+    
+    comp, _, _ = extract_components_from_pil(temp)
+    comp1, _, _ = extract_components_from_pil(img1)
+    comp2, _, _ = extract_components_from_pil(img2)
+
+    cluster = ClusterGroup(comp)
+    _, _, h, w = cluster.get_bbox_yxhw()
+    cluster1 = ClusterGroup(comp1).resize((w, h))
+    cluster2 = ClusterGroup(comp2).resize((w, h))
+
+    ratio1 = chamfer_ratio(cluster, cluster1, (0, 0))
+    ratio2 = chamfer_ratio(cluster, cluster2, (0, 0))
+
+    print(ratio1, ratio2)
     
 
 if __name__ == "__main__":

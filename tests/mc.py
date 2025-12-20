@@ -77,7 +77,7 @@ class Component:
 
     def get_soft_contour_points(self, thresh: int = 127) -> np.ndarray:
         """
-        使用灰階深淺變化抓更“鬆”的輪廓。
+        灰階深淺變化的輪廓。
         若 pixel 與任一 4-neighbor 的灰階差 > thresh，就視為輪廓。
         
         邊界以外視為 255，允許座標為負。
@@ -235,6 +235,76 @@ class ClusterGroup:
     def get_centroid(self) -> Tuple[int,int]:
         """Return centroid in (x, y)"""
         return self.centroid
+
+    def resize(self, size: Tuple[int, int]) -> 'ClusterGroup':
+        """
+        縮放整個 ClusterGroup 並回傳一個新的 ClusterGroup 實例。
+        
+        Args:
+            size (Tuple[int, int]): 目標尺寸 (width, height)
+        Returns:
+            ClusterGroup: 縮放後的新 ClusterGroup 物件
+        """
+        target_w, target_h = size
+        orig_y1, orig_x1, orig_h, orig_w = self.bbox_yxhw
+        
+        if orig_w == 0 or orig_h == 0:
+            return ClusterGroup([])
+
+        # 1. 計算縮放倍率
+        scale_x = target_w / orig_w
+        scale_y = target_h / orig_h
+
+        new_components = []
+
+        for comp in self.components:
+            # 計算該組件在縮放後的新尺寸
+            c_y1, c_x1, c_h, c_w = comp.bbox_yxhw
+            # 相對於 Cluster 左上角的位移
+            rel_x = c_x1 - orig_x1
+            rel_y = c_y1 - orig_y1
+            
+            # 縮放後的尺寸與位置
+            new_cw = max(1, int(round(c_w * scale_x)))
+            new_ch = max(1, int(round(c_h * scale_y)))
+            new_cx1 = int(round(rel_x * scale_x))
+            new_cy1 = int(round(rel_y * scale_y))
+
+            # 2. 縮放 Pixels 與 Mask
+            # 使用 PIL 進行影像處理
+            img_pix = Image.fromarray(comp.pixels)
+            img_mask = Image.fromarray(comp.mask.astype(np.uint8) * 255)
+            
+            res_pix = np.array(img_pix.resize((new_cw, new_ch), Image.Resampling.LANCZOS))
+            res_mask = np.array(img_mask.resize((new_cw, new_ch), Image.Resampling.NEAREST)) > 127
+
+            # 3. 重建座標 (coords)
+            # 因為 Component.__init__ 依賴 coords 來計算 bbox 和 mask
+            # 我們從 res_mask 中提取局部座標，再轉換為「偽全圖」座標
+            local_ys, local_xs = np.where(res_mask)
+            # 這裡的座標是相對於新 Cluster 左上角 (0,0) 的
+            new_coords = np.column_stack((local_ys + new_cy1, local_xs + new_cx1))
+
+            # 4. 建立新的 Component
+            # 注意：這裡我們提供一個「局部背景圖」給 Component init 
+            # 為了符合你 Component 的設計，我們建立一個剛好涵蓋該 component 的畫布
+            fake_full_gray = np.zeros((new_cy1 + new_ch, new_cx1 + new_cw), dtype=res_pix.dtype)
+            fake_full_gray[new_cy1:new_cy1+new_ch, new_cx1:new_cx1+new_cw] = res_pix
+            
+            # 計算新的質心 (簡單縮放)
+            new_centroid = (comp.centroid_float[0] * scale_x, comp.centroid_float[1] * scale_y)
+            
+            new_comp = Component(
+                label_id=comp.label_id,
+                centroid=new_centroid,
+                coords=new_coords,
+                full_gray_image=fake_full_gray
+            )
+            new_components.append(new_comp)
+
+        # 回傳新的 ClusterGroup
+        return ClusterGroup(new_components)
+
 
 def level_cluster_centroids(centroids: List[Tuple[float,float]], threshold: float, wx=1.0, wy=1.0) -> List[List[int]]:
     """
