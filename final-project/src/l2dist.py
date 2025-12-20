@@ -2,13 +2,23 @@ import numpy as np
 from PIL import Image
 
 def l2_similarity(base_img: Image.Image, img: Image.Image) -> float:
+    
     """
-    Crop non-background regions from img1 and img2 (if bg is None, prefer transparency as background),
-    resize img1 or img2 size, and return the similarity ratio [0, 1] between the two images' pixel vectors.
+    Compute the l2 distance of two images and normalize into [0, 1]. 
+
+    Resize `img` based on the size of `base_img`, and return the similarity 
+    ratio [0, 1] between the two images' pixel vectors.
+
+    :param base_img: The first, also the based image. 
+    :type base_img: Image.Image
+    :param img: The second image. 
+    :type img: Image.Image
+    :return: A normalized value in [0, 1] as the similarity. 
+    :rtype: float
     """
 
-    base_img = base_img.convert("RGBA")
-    img = img.convert("RGBA").resize(base_img.size)
+    base_img = base_img.convert("L")
+    img = img.convert("L").resize(base_img.size)
 
     # Compute L2 on flattened arrays
     arr1 = np.asarray(base_img, dtype=np.float32).ravel()

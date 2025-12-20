@@ -5,6 +5,7 @@ from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
 
 from src.cluster import ClusterGroup, extract_components_from_pil, hierarchical_cluster
+from src.chamfer import chamfer_ratio
 from src.hausdorff import hausdorff_similarity
 from src.l2dist import l2_similarity
 from src.template import TexMacro, load_tex_macros
@@ -103,7 +104,7 @@ def test(case: str):
     import time 
     start = time.time()
     out = adaptive_cluster(
-        src_img, sauce, hausdorff_similarity, second_accept_sim = 0.85
+        src_img, sauce, hausdorff_similarity, accept_sim=0.65, second_accept_sim = 0.9
     )
     print(time.time() - start)
 
@@ -136,5 +137,5 @@ def test(case: str):
     print(myTable)
 
 if __name__ == "__main__":
-    test("03")
+    test("01")
 
