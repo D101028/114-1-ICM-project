@@ -40,7 +40,7 @@ For the user’s input vector $\mathbf{u}$, we compute the same ratio $\mathbf{r
 The distance between the two ratio vectors is measured using the L1 (Manhattan) distance:
 
 $$
-\text{cost}(f) = \sum_{j = c, p, h, f } |r_{f,j} - r_{u,j}|.
+\text{cost}(f) = \sum_{j \in \lbrace c, p, h, f \rbrace} |r_{f,j} - r_{u,j}|.
 $$
 
 A smaller cost indicates a more similar nutrient ratio.
