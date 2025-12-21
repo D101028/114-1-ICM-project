@@ -1,5 +1,5 @@
-import sys
-from typing import List, Tuple, Callable
+import time
+from typing import List, Callable
 
 from PIL import Image, ImageEnhance, ImageDraw
 from prettytable import PrettyTable
@@ -87,25 +87,27 @@ def adaptive_cluster(
 
     return recurse(cluster)
 
+def load_image(path: str) -> Image.Image:
+    img = Image.open(path).convert("L")
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(4.0)
+    return img
+
 def test(case: str):
     filein = f"./testcases/case{case}.png"
     fileout = f"./out/case{case}.png"
     
     sauce = load_tex_macros("./templates")
 
-    src_img = Image.open(filein)
-    src_img = src_img.convert("L")
-    enhancer = ImageEnhance.Contrast(src_img)
-    src_img = enhancer.enhance(2.0)
+    src_img = load_image(filein)
 
-    import time 
     start = time.time()
     out = adaptive_cluster(
         src_img, sauce, 
         sim_func=l2_similarity, 
-        second_sim_func=chamfer_similarity, 
+        # second_sim_func=chamfer_similarity, 
         accept_sim=0.7, 
-        second_accept_sim=0.99
+        # second_accept_sim=0.98
     )
     print(time.time() - start)
 
@@ -139,6 +141,20 @@ def test(case: str):
     src_img.save(fileout)
     print(myTable)
 
+def test1(case: str, N: int = 10):
+    """純 l2 sim 實驗"""
+    sauce = load_tex_macros("templates")
+    src_img = load_image(f"testcases/case{case}.png")
+
+    start = time.time()
+    for _ in range(N):
+        adaptive_cluster(
+            src_img, sauce
+        )
+    end = time.time()
+
+    print(f"Time in Average: {(end - start) / N:.4f}s")
+
 if __name__ == "__main__":
-    test("01")
+    test("05")
 
