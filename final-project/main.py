@@ -19,47 +19,40 @@ class AdaptiveReturnSet:
         self.depth = depth
 
 def adaptive_cluster(
-    img: Image.Image, sauce: List[TexMacro], 
+    input_img: Image.Image, sauce: List[TexMacro], 
     sim_func: Callable[[ClusterGroup, ClusterGroup], float] = l2_similarity, 
     second_sim_func: Callable[[ClusterGroup, ClusterGroup], float] = lambda _, __: 1.0, 
     accept_sim = 0.7, second_accept_sim = 0.9, max_depth = 16
 ) -> List[AdaptiveReturnSet]:
 
-    def recurse(img: Image.Image, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0, topleft = (0, 0)) -> List[AdaptiveReturnSet]:
+    def recurse(cluster: ClusterGroup, depth = 0, fix_ratio_x = 1.0, fix_ratio_y = 1.0) -> List[AdaptiveReturnSet]:
         # 1. 初始化參數與分群
         wx, wy = 2 + 0.1 * fix_ratio_x, 0.1 + 0.1 * fix_ratio_y
-        components, bbox_yxhw, gray = extract_components_from_pil(img)
         
         clusters = hierarchical_cluster(
-            components,
-            base_threshold=bbox_yxhw[2] * 0.4,
+            cluster,
+            base_threshold=cluster.get_bbox_hw()[0] * 0.4,
             wx=wx, wy=wy,
-            refine_min_size=4, refine_ratio=0.5,
-            build_cluster_masks=False,
-            image_shape=gray.shape, 
-            topleft=topleft
+            refine_min_size=4, refine_ratio=0.5
         )
 
         # 2. 特殊情況：如果分不開且還有深度，增加權重重試
         if len(clusters) == 1 and len(clusters[0].components) > 1 and depth < max_depth:
-            return recurse(img, depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2, topleft)
+            return recurse(clusters[0], depth + 1, fix_ratio_x + 0.5, fix_ratio_y + 2)
         
         rec_out: List[AdaptiveReturnSet] = []
         for cluster in clusters:
             h, w = cluster.get_bbox_hw()
-            next_topleft = cluster.topleft
             r = h / w
-            tgt = cluster.to_L()
 
             # 3. 遞迴深挖：如果組件過多，強制進入下一層
             if len(cluster.components) > 4 and depth < max_depth:
-                rec_out.extend(recurse(tgt, depth + 1, topleft=next_topleft))
+                rec_out.extend(recurse(cluster, depth + 1))
                 continue
 
             # 4. 統一比對邏輯
             best_macro, max_sim, second_sim = None, 0.0, 0.0
             
-            # for f, (src, yx_ratio, base_cluster) in sauce.items():
             for tex_macro in sauce:
                 # 比率篩選邏輯
                 is_compatible = (
@@ -79,7 +72,7 @@ def adaptive_cluster(
             # 5. 判定與輸出
             # 如果相似度不足且還有組件，嘗試進一步拆解
             if (max_sim < accept_sim or second_sim < second_accept_sim) and depth < max_depth and len(cluster.components) > 1:
-                rec_out.extend(recurse(tgt, depth + 1, topleft=next_topleft))
+                rec_out.extend(recurse(cluster, depth + 1))
             else:
                 if max_sim < accept_sim and best_macro is not None:
                     print(f"Doubted: {best_macro.macro} (Sim: {max_sim:.3f})")
@@ -89,7 +82,10 @@ def adaptive_cluster(
                 
         return rec_out
     
-    return recurse(img)
+    components, _, _ = extract_components_from_pil(input_img)
+    cluster = ClusterGroup(components)
+
+    return recurse(cluster)
 
 def test(case: str):
     filein = f"./testcases/case{case}.png"
@@ -107,9 +103,9 @@ def test(case: str):
     out = adaptive_cluster(
         src_img, sauce, 
         sim_func=l2_similarity, 
-        # second_sim_func=chamfer_similarity, 
-        accept_sim=0.75, 
-        # second_accept_sim=0.99
+        second_sim_func=chamfer_similarity, 
+        accept_sim=0.7, 
+        second_accept_sim=0.99
     )
     print(time.time() - start)
 
@@ -144,15 +140,4 @@ def test(case: str):
 
 if __name__ == "__main__":
     test("01")
-    # img = Image.open("tmp.png")
-    # comp, _, _ = extract_components_from_pil(img)
-    # cluster = ClusterGroup(comp)
-
-    # src = Image.open("templates/%5Cint_e06a3bfdbb.png")
-    # comp, _, _ = extract_components_from_pil(src)
-    # base = ClusterGroup(comp)
-
-    # print(l2_similarity(base, cluster))
-    # print(chamfer_similarity(base, cluster))
-    # print(l2_similarity(base, cluster))
 

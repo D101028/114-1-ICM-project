@@ -36,8 +36,8 @@ def hausdorff_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup) -> f
     h, w = base_cluster.get_bbox_hw()
     cluster = cluster.resize((w, h))
 
-    arr1 = base_cluster.get_soft_contour_arr()
-    arr2 = cluster.get_soft_contour_arr()
+    arr1 = base_cluster.get_pixels_below_threshold()
+    arr2 = cluster.get_pixels_below_threshold()
 
     if arr1.size == 0 or arr2.size == 0:
         return 0.0 # 若為空，返回 0 相似
