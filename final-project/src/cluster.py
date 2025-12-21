@@ -22,6 +22,8 @@ class Component:
         # center_of_mass gives (cy, cx)
         cy_f, cx_f = centroid
         self.centroid = (int(round(cx_f)), int(round(cy_f)))  # (cx, cy) as ints
+        # store centroid as floats too if needed
+        self.centroid_float = (cx_f, cy_f)
 
         self.full_gray_image = full_gray_image
 
@@ -34,6 +36,7 @@ class Component:
             self.bbox_yxhw = (0,0,0,0)
             self.mask = np.zeros((0,0), dtype=bool)
             self.pixels = np.zeros((0,0), dtype=full_gray_image.dtype)
+            self.soft_contour_points: np.ndarray | None = None
             return
 
         ys = self.coords[:,0]
@@ -61,9 +64,6 @@ class Component:
 
         self.mask = mask
         self.pixels = cropped
-        # store centroid as floats too if needed
-        self.centroid_float = (cx_f, cy_f)
-
         self.soft_contour_points: np.ndarray | None = None
 
     def get_centroid(self) -> Tuple[int,int]:

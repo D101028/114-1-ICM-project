@@ -44,7 +44,7 @@ def hausdorff_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup) -> f
 
     dist = hausdorff_distance(arr1, arr2)
     
-    # 方案 A：使用兩者聯集的對角線進行標準化 (最推薦，確保 ratio <= 1)
+    # 使用兩者聯集的對角線進行標準化 (最推薦，確保 ratio <= 1)
     all_pts = np.vstack([arr1, arr2])
     min_coords = all_pts.min(axis=0)
     max_coords = all_pts.max(axis=0)

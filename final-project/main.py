@@ -107,8 +107,9 @@ def test(case: str):
     out = adaptive_cluster(
         src_img, sauce, 
         sim_func=l2_similarity, 
-        second_sim_func=hausdorff_similarity, 
-        accept_sim=0.6, second_accept_sim=0.9
+        # second_sim_func=chamfer_similarity, 
+        accept_sim=0.75, 
+        # second_accept_sim=0.99
     )
     print(time.time() - start)
 

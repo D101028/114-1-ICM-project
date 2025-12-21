@@ -5,7 +5,6 @@ from PIL import Image
 
 from .cluster import ClusterGroup
 
-# def l2_similarity(base_img: Image.Image, img: Image.Image) -> float:
 def l2_similarity(base_cluster: ClusterGroup, cluster: ClusterGroup) -> float:
     """
     Compute the l2 distance of two images and normalize into [0, 1]. 
