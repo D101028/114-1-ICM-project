@@ -104,10 +104,10 @@ def test(case: str):
     start = time.time()
     out = adaptive_cluster(
         src_img, sauce, 
-        sim_func=hausdorff_similarity, 
-        # second_sim_func=chamfer_similarity, 
-        accept_sim=0.9, 
-        # second_accept_sim=0.98
+        sim_func=l2_similarity, 
+        second_sim_func=hausdorff_similarity, 
+        accept_sim=0.6, 
+        second_accept_sim=0.9
     )
     print(time.time() - start)
 
