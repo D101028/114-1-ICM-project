@@ -207,7 +207,7 @@ class ClusterGroup:
             cys = np.array([c.centroid_float[1] for c in self.components], dtype=float)
             cx = float((cxs * areas).sum() / areas.sum())
             cy = float((cys * areas).sum() / areas.sum())
-            self.centroid = (int(round(cx)), int(round(cy)))
+            self.centroid = (int(round(cx)), int(round(cy))) # centroid 在 **原圖** 的座標
             self.centroid_float = (cx, cy)
         else:
             self.centroid = (0,0)
@@ -247,7 +247,7 @@ class ClusterGroup:
         return self.bbox_hw
 
     def get_centroid(self) -> Tuple[int,int]:
-        """Return centroid in (x, y)"""
+        """回傳 centroid 在**原圖**的座標"""
         return self.centroid
 
     def get_soft_contour_arr(self) -> np.ndarray:
@@ -285,7 +285,7 @@ class ClusterGroup:
 
     def resize(self, size: Tuple[int, int]) -> 'ClusterGroup':
         """
-        縮放整個 ClusterGroup 並回傳一個新的 Fake ClusterGroup 實例。\\
+        縮放整個 ClusterGroup 並回傳一個假的 ClusterGroup 實例。
         
         Args:
             size (Tuple[int, int]): 目標尺寸 (width, height)

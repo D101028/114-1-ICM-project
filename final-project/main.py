@@ -121,7 +121,7 @@ def test(case: str):
         cx, cy = result.cluster.get_centroid()
         tableRows.append([
             (y, x, h, w), 
-            (cx+x, cy+y), 
+            (cx, cy), 
             result.best_macro.macro, 
             result.max_sim, 
             result.second_sim, 
@@ -129,6 +129,7 @@ def test(case: str):
         ])
         draw = ImageDraw.Draw(src_img, "RGB")
         draw.rectangle((x-1, y-1, x+w+1, y+h+1), None, (0,0,128) if result.max_sim >= 0.7 else (128,0,0))
+        draw.circle((cx, cy), 1, (0,255,0))
 
     tableRows.sort(
         key = lambda row: row[1][0]
