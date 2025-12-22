@@ -88,4 +88,44 @@ def plot2():
     plt.tight_layout()
     plt.show()
 
-plot2()
+def plot3():
+    data = {
+        "PC (Intel i5-10400)": [0.054, 1.814, 2.546, None, 0.579], 
+        "Phone (Samsung Exynos 1280 SoC)": [0.125, 4.767, 7.917, None, 1.459]
+    }
+
+    title = "Time Consumption on Different Devices (L2 Pixelwise + Chamfer)"
+
+    # Prepare data (exclude Case04)
+    cases = ["Case01", "Case02", "Case03", "Case05"]
+    case_indices = [0, 1, 2, 4]
+    methods = list(data.keys())
+    x = np.arange(len(cases))
+    width = 0.25
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Plot bars for each method
+    for i, method in enumerate(methods):
+        values = [data[method][j] for j in case_indices]
+        offset = (i - 0.5) * width
+        bars = ax.bar(x + offset, values, width, label=method)
+        
+        # Add value labels on bars
+        for j, bar in enumerate(bars):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.3f}', ha='center', va='bottom', fontsize=8)
+
+    ax.set_xlabel('Test Case', fontsize=12)
+    ax.set_ylabel('Time (seconds)', fontsize=12)
+    ax.set_title(title, fontsize=14)
+    ax.set_xticks(x)
+    ax.set_xticklabels(cases)
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+plot3()
