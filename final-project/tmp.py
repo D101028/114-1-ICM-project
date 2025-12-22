@@ -29,3 +29,13 @@ add_white_border("testcases/case02.png", 3).save("img/case02.png")
 add_white_border("testcases/case03.png", 3).save("img/case03.png")
 add_white_border("testcases/case04.png", 3).save("img/case04.png")
 add_white_border("testcases/case05.png", 6).save("img/case05.png")
+
+folder = r"D:\課業\大學\Projects\test\out-l2-c"
+import os 
+
+for root, dirs, files in os.walk(folder):
+    for file in files:
+        path = os.path.join(root, file)
+        pix = 1 if "case01" in file else 6 if "case05" in file else 3
+        add_white_border(path, pix).save(path)
+

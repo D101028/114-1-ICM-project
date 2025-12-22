@@ -6,7 +6,10 @@ import urllib.parse
 from pathlib import Path
 from PIL import Image
 
-import fitz  # PyMuPDF
+try:
+    import fitz  # PyMuPDF
+except:
+    pass 
 from PIL import Image, ImageEnhance, ImageChops
 
 def encode_macro(text: str) -> str:
