@@ -1,5 +1,7 @@
 numpy
 pandas
 scipy
-opencv-python
+pillow
+prettytable
+matplotlib
 PyMuPDF
